@@ -1,5 +1,7 @@
 import json
 
+#note: this data is from olympiadbench and we extract the questions and the answers 
+
 def main():
     compilation_of_all_questions = {}
     with open("data/math_olympiad_questions.json", "r") as f:

@@ -1,0 +1,15 @@
+# These are the core dependencies/ML libraries we need for our project
+torch>=2.0,<3.0
+numpy>=1.24,<3.0
+
+# These are the requirements forHugging Face regarding the tokenizer, GPT-2 baseline, and datasets
+transformers>=4.30,<5.0
+datasets>=2.14,<3.0
+tokenizers>=0.13,<0.20
+
+# Mamba / SSM will requires CUDA and matching PyTorch; check README; will be implemented later 
+
+# Utilities for feedback, visualization, and loading API
+tqdm>=4.65,<5.0
+pyyaml>=6.0,<7.0
+python-dotenv>=1.0,<2.0
