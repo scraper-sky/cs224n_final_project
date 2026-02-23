@@ -5,7 +5,7 @@ numpy>=1.24,<3.0
 # These are the requirements forHugging Face regarding the tokenizer, GPT-2 baseline, and datasets
 transformers>=4.30,<5.0
 datasets>=2.14,<3.0
-tokenizers>=0.13,<0.20
+tokenizers>=0.13
 
 # Mamba / SSM will requires CUDA and matching PyTorch; check README; will be implemented later 
 

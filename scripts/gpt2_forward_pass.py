@@ -1,5 +1,5 @@
 # load GPT-2 locally and run one forward pass with it
-# we run this from the project root with 'python scripts/run_gpt2_forward.py'
+# we run this from the project root with 'python scripts/gpt2_forward_pass.py'
 # this requires running the command 'pip install transformers torch'
 
 import sys

@@ -37,9 +37,9 @@ def get_model(name: str = "gpt2",*,tokenizer_name: str = "gpt2",
     if name == "gpt2":
         return _get_gpt2(device=device, **model_kwargs)
     if name == "mamba":
-        raise NotImplementedError("Mamba loader not yet implemented")
+        return _get_mamba(device=device, **model_kwargs)
     if name == "hybrid":
-        raise NotImplementedError("Hybrid (HMT) loader not yet implemented")
+        raise NotImplementedError("Hybrid loader not yet implemented")
     raise ValueError(f"Invalid model name: {name}")
 
 
@@ -48,10 +48,29 @@ def _get_gpt2(
     **kwargs: Any,
 ) -> Tuple["PreTrainedModel", "PreTrainedTokenizerBase"]:
     # here we load the hugging face gpt2 model (same architecture as Karpathy's minGPT)
+    # this also loads the tokenizer
     from transformers import AutoModelForCausalLM, AutoTokenizer
     model_name = kwargs.pop("pretrained", None) or "gpt2"
+    # here we get the model/tokenizer name from the kwargs
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    # the AutoTokenizer is called and with device set, the model is moved to that device
     model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+    if device is not None:
+        model = model.to(device)
+    return model, tokenizer
+
+
+def _get_mamba(
+    device: Optional[str] = None,
+    **kwargs: Any,
+) -> Tuple[Any, "PreTrainedTokenizerBase"]:
+    from transformers import AutoTokenizer, MambaForCausalLM
+
+    model_id = kwargs.pop("pretrained", None) or "state-spaces/mamba-130m-hf"
+    # get the model/tokenizer name from the kwargs
+    tokenizer = get_tokenizer("gpt2")
+    # the MambaForCausalLM is called and with the device set, the model is moved to that device
+    model = MambaForCausalLM.from_pretrained(model_id, **kwargs)
     if device is not None:
         model = model.to(device)
     return model, tokenizer
@@ -59,4 +78,5 @@ def _get_gpt2(
 
 def list_models() -> list[str]:
     #here are the list of models that we will support for our experiment
+    # used to know which models are valid to use in get_model function
     return ["gpt2", "mamba", "hybrid"]
