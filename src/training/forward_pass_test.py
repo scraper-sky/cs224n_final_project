@@ -1,4 +1,4 @@
-#sanity check where we load GPT-2 and run one forward pass
+# Sanity check where we load GPT-2 and run one forward pass
 # here we use: python -m src.training.forward_pass_test
 from src.models import get_model
 

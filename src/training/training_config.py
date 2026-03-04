@@ -1,5 +1,13 @@
-# this is the training config that uses hyperparameters and paths
-# this can be overridden via environment or pass dict.
+# Training configuration.  All values can be overridden via environment variables or by
+# passing a dict to get_config().
+#
+# HMT recommended Phase-1 recipe (freeze GPT-2, train only Mamba blocks):
+#   TRAIN_MODEL=hybrid FREEZE_GPT2=1 LR=1e-4 WARMUP_STEPS=100 MAX_GRAD_NORM=1.0 \
+#   BATCH_SIZE=2 MAX_STEPS=500 SAVE_EVERY=250 python -m src.training.run_training
+#
+# HMT Phase-2 (full fine-tune after Mamba blocks have stabilised):
+#   TRAIN_MODEL=hybrid FREEZE_GPT2=0 LR=2e-5 WARMUP_STEPS=50 MAX_GRAD_NORM=1.0 \
+#   MAX_STEPS=500 python -m src.training.run_training
 
 import os
 from typing import Any, Optional
@@ -24,6 +32,16 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         "save_every": int(os.environ.get("SAVE_EVERY", "500")),
         "seed": int(os.environ.get("SEED", "42")),
         "train_on_solution_only": os.environ.get("TRAIN_ON_SOLUTION_ONLY", "0").lower() in ("1", "true", "yes"),
+
+        # Additional parameters for stability and optimization
+        # freeze_gpt2: in HMT, freeze embeddings, positional embeddings, ln_f, lm_head, attn blocks
+        # so only Mamba blocks are updated.
+        "freeze_gpt2": os.environ.get("FREEZE_GPT2", "0").lower() in ("1", "true", "yes"),
+        # warmup_steps: number of steps over which LR linearly ramps from 0 to cfg["lr"].
+        # (set to 10% of max_steps to prevent large gradient updates in early steps)
+        "warmup_steps": int(os.environ.get("WARMUP_STEPS", "100")),
+        # max_grad_norm: gradient clipping threshold. Set to 0 to disable.
+        "max_grad_norm": float(os.environ.get("MAX_GRAD_NORM", "1.0")),
     }
     if overrides:
         config.update(overrides)

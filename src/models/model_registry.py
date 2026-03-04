@@ -1,5 +1,5 @@
-#we run models locally without making any API calls (which have limited inference and usage)
-#we use the same tokenizer (GPT-2) across all models as a baseline; this ensures that prompts and metrics are comparable
+# We run models locally without making any API calls (which have limited inference and usage)
+# We use the same tokenizer (GPT-2) across all models as a baseline; this ensures that prompts and metrics are comparable
 from __future__ import annotations
 
 from typing import Any, Optional, Tuple
