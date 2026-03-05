@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 from .tokenizer import get_tokenizer
 
-ATTN_LAYER_INDICES = (3, 7, 11)
+ATTN_LAYER_INDICES = (2, 5, 8, 11)
 MAX_POSITION_EMBEDDINGS = 1024
 
 
@@ -40,11 +40,13 @@ class HybridMambaTransformer(nn.Module):
 
         self.layers = nn.ModuleList()
         self.mamba_to_attn_projections = nn.ModuleList()
+        self.attn_to_mamba_projections = nn.ModuleList()
         mamba_idx = 0
         for i in range(12):
             if i in ATTN_LAYER_INDICES:
                 self.layers.append(GPT2Block(gpt2_config, layer_idx=i))
                 self.mamba_to_attn_projections.append(nn.Linear(hidden_size, hidden_size))
+                self.attn_to_mamba_projections.append(nn.Linear(hidden_size, hidden_size))
             else:
                 self.layers.append(MambaBlock(mamba_config, layer_idx=mamba_idx))
                 mamba_idx += 1
@@ -82,6 +84,7 @@ class HybridMambaTransformer(nn.Module):
             if i in ATTN_LAYER_INDICES:
                 x = self.mamba_to_attn_projections[proj_idx](x)
                 x = layer(x, attention_mask=attn_mask_4d, use_cache=False)[0]
+                x = self.attn_to_mamba_projections[proj_idx](x)
                 proj_idx += 1
             else:
                 mamba_attn = attention_mask if attention_mask is not None else torch.ones_like(input_ids, dtype=torch.float, device=device)
@@ -128,6 +131,10 @@ def _copy_pretrained_weights(model: HybridMambaTransformer, copy_mamba_weights: 
         model.layers[hybrid_i].load_state_dict(gpt2_src.transformer.h[src_i].state_dict())
 
     for proj in model.mamba_to_attn_projections:
+        nn.init.eye_(proj.weight)
+        if proj.bias is not None:
+            nn.init.zeros_(proj.bias)
+    for proj in model.attn_to_mamba_projections:
         nn.init.eye_(proj.weight)
         if proj.bias is not None:
             nn.init.zeros_(proj.bias)
