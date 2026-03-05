@@ -41,6 +41,8 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         model_kwargs["freeze_gpt2"] = True
 
     model, tokenizer = get_model(cfg["model_name"], device=cfg["device"], **model_kwargs)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     dataloader = get_math_dataloader(
         cfg["math_preprocessed_jsonl"],
         tokenizer,
