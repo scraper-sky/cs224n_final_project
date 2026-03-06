@@ -38,6 +38,7 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         # freeze_gpt2: in HMT, freeze embeddings, positional embeddings, ln_f, lm_head, attn blocks
         # so only Mamba blocks are updated.
         "freeze_gpt2": os.environ.get("FREEZE_GPT2", "0").lower() in ("1", "true", "yes"),
+        "math_focused": os.environ.get("TRAIN_MATH_FOCUSED", "0").lower() in ("1", "true", "yes"),
         # warmup_steps: number of steps over which LR linearly ramps from 0 to cfg["lr"].
         # (set to 10% of max_steps to prevent large gradient updates in early steps)
         "warmup_steps": int(os.environ.get("WARMUP_STEPS", "100")),
@@ -46,4 +47,7 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     }
     if overrides:
         config.update(overrides)
+    if config.get("math_focused"):
+        config["freeze_gpt2"] = False
+        config["lr"] = 2e-5
     return config

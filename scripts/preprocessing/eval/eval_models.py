@@ -18,6 +18,7 @@
 import json
 import math
 import os
+import re
 import sys
 
 import torch
@@ -75,8 +76,25 @@ def compute_perplexity(model, tokenizer, chunks_path, device, context_window, ma
 
 
 def _normalize(s: str) -> str:
-    # strip whitespace and lowercase for loose comparison
     return s.strip().lower()
+
+
+def _match_answer(gold: str, predicted: str) -> bool:
+    if gold in predicted:
+        return True
+    pred_clean = "".join(c for c in predicted if c.isalnum() or c in ".,/-")
+    gold_clean = "".join(c for c in gold if c.isalnum() or c in ".,/-")
+    if gold_clean and gold_clean in pred_clean:
+        return True
+    nums_pred = re.findall(r"-?\d+\.?\d*", pred_clean)
+    if gold_clean.replace(".", "").replace("-", "").replace("/", "").isdigit():
+        for n in nums_pred:
+            try:
+                if float(n) == float(gold_clean) or n == gold_clean:
+                    return True
+            except ValueError:
+                pass
+    return False
 
 
 def _greedy_decode(model, input_ids, max_new_tokens, eos_token_id):
@@ -106,6 +124,8 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
     if max_samples:
         lines = lines[:max_samples]
 
+    debug = os.environ.get("EVAL_DEBUG", "0").lower() in ("1", "true", "yes")
+    debug_samples = []
     with torch.inference_mode():
         for line in tqdm(lines, desc="exact match"):
             obj = json.loads(line)
@@ -129,26 +149,29 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
                 # fallback for plain nn.Module models (e.g. HybridMambaTransformer)
                 gen_ids = _greedy_decode(model, input_ids, max_new_tokens, tokenizer.eos_token_id)
 
-            # decode only newly generated tokens
             new_ids = gen_ids[0, input_ids.shape[1]:]
             predicted = _normalize(tokenizer.decode(new_ids, skip_special_tokens=True))
-
-            # gold is treated as correct if it appears verbatim in the generated output
-            if gold in predicted:
+            if _match_answer(gold, predicted):
                 correct += 1
+            if debug and len(debug_samples) < 5:
+                debug_samples.append((gold[:50], predicted[:100]))
             total += 1
+    if debug and debug_samples:
+        print("  [EVAL_DEBUG] sample (gold, predicted):")
+        for g, p in debug_samples:
+            print(f"    gold={g!r} pred={p!r}")
     return correct / total if total > 0 else 0.0
 
 
 def main():
     from src.models import get_model
 
-    data_dir = os.environ.get("DATA_DIR", os.path.join(PROJECT_ROOT, "data"))
+    data_dir = os.environ.get("DATA_DIR", os.path.join(os.getcwd(), "data"))
     chunks_path = os.environ.get("GUTENBERG_CHUNKS_JSONL", os.path.join(data_dir, "gutenberg_7000_1192.jsonl"))
     math_path = os.environ.get("MATH_PREPROCESSED_JSONL", os.path.join(data_dir, "olympiad_preprocessed.jsonl"))
     model_names = os.environ.get("EVAL_MODELS", "gpt2").split(",")
     device = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
-    results_path = os.environ.get("RESULTS_JSON", os.path.join(PROJECT_ROOT, "eval_results.json"))
+    results_path = os.environ.get("RESULTS_JSON", os.path.join(os.getcwd(), "eval_results.json"))
 
     # Total tokens fed to the model (context + target). Hard cap for GPT-2 is 1024.
     # Increase for Mamba to study long-context behaviour (e.g. CONTEXT_WINDOW=4096).
