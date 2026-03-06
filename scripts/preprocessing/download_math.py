@@ -13,7 +13,7 @@ def main():
     configs = ["OE_TO_maths_en_COMP", "TP_TO_maths_en_COMP"]
     all_rows = []
     for cfg in configs:
-        ds = load_dataset("Hothan/OlympiadBench", cfg, split="train")
+        ds = load_dataset("Hothan/OlympiadBench", cfg, split="train", trust_remote_code=True)
         all_rows.extend(list(ds))
     dataset = all_rows
     items = []

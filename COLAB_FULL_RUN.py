@@ -7,11 +7,14 @@ import os
 import subprocess
 import sys
 
-# --- 1. Clone and setup ---
+# --- 1. Clone and setup (use /content to avoid nested-path issues) ---
 REPO = "https://github.com/scraper-sky/cs224n_final_project"
-PROJ = os.path.join(os.getcwd(), "cs224n_final_project")
-if not os.path.exists(PROJ):
-    subprocess.run(["git", "clone", REPO], check=True)
+BASE = os.environ.get("COLAB_DRIVE", "/content")  # Colab default; set if using Drive
+PROJ = os.path.join(BASE, "cs224n_final_project")
+os.makedirs(BASE, exist_ok=True)
+os.chdir(BASE)
+subprocess.run(["rm", "-rf", "cs224n_final_project"], check=False)
+subprocess.run(["git", "clone", REPO], check=True)
 os.chdir(PROJ)
 
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt"], check=True)

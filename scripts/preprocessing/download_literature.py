@@ -14,24 +14,21 @@ import random
 def main():
     from datasets import load_dataset
 
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.environ.get("DATA_DIR", os.path.abspath(os.path.join(script_dir, "..", "..", "data")))
+    out_dir = data_dir
+    os.makedirs(out_dir, exist_ok=True)
+
     # Load BEE-spoke-data/gutenberg-en-v1-clean (train split)
     dataset = load_dataset("BEE-spoke-data/gutenberg-en-v1-clean", split="train")
-
     # Filter by score > 0.95
     filtered = dataset.filter(lambda x: x["score"] > 0.95)
-
-    # Sample 500 items 
-    n_sample = 500
-    seed = 42
-    if len(filtered) < n_sample:
-        n_sample = len(filtered)
+    n_sample = min(500, len(filtered))
+    if len(filtered) < 500:
         print(f"{len(filtered)} items have score > 0.95.")
     indices = list(range(len(filtered)))
-    random.seed(seed)
+    random.seed(42)
     chosen = random.sample(indices, n_sample)
-
-    out_dir = os.path.join(os.path.dirname(__file__), "../..", "data")
-    os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "gutenberg_literature.jsonl")
 
     with open(out_path, "w") as f:
