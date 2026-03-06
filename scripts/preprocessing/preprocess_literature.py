@@ -10,7 +10,7 @@ import sys
 
 # here we set the paths for the input and output files
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../.."))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -61,7 +61,7 @@ def main():
             }
             fout.write(json.dumps(row, ensure_ascii=False) + "\n")
             written += 1
-
+    
     print(f"Wrote {written} chunks to {out_path} (skipped {skipped} items with < {TOTAL_LEN} tokens)")
 
 
