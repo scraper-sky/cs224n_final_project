@@ -113,7 +113,8 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
             gold = _normalize(obj.get("final_answer") or "")
             if not question or not gold:
                 continue
-            enc = tokenizer(question, return_tensors="pt", truncation=True, max_length=context_window)
+            prompt = f"{question}\n\nFinal answer:"
+            enc = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=context_window)
             input_ids = enc["input_ids"].to(device)
             attention_mask = enc["attention_mask"].to(device)
             if hasattr(model, "generate"):
@@ -157,7 +158,7 @@ def main():
     # e.g. with context_window=1024 and max_target_tokens=512: 512 context + 512 target.
     max_target_tokens = int(os.environ.get("MAX_TARGET_TOKENS", "512"))
 
-    max_new_tokens = int(os.environ.get("MAX_NEW_TOKENS", "64"))
+    max_new_tokens = int(os.environ.get("MAX_NEW_TOKENS", "256"))
     max_lit_samples = int(os.environ.get("MAX_LIT_SAMPLES", "50"))
     max_math_samples = int(os.environ.get("MAX_MATH_SAMPLES", "100"))
 

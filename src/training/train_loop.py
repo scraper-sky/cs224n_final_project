@@ -49,6 +49,7 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         batch_size=cfg["batch_size"],
         max_length=cfg["max_length"],
         solution_only=cfg["train_on_solution_only"],
+        append_answer=cfg.get("append_answer", True),
         seed=cfg["seed"],
     )
 

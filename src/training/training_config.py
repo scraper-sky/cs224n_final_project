@@ -32,6 +32,7 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         "save_every": int(os.environ.get("SAVE_EVERY", "500")),
         "seed": int(os.environ.get("SEED", "42")),
         "train_on_solution_only": os.environ.get("TRAIN_ON_SOLUTION_ONLY", "0").lower() in ("1", "true", "yes"),
+        "append_answer": os.environ.get("APPEND_ANSWER", "1").lower() in ("1", "true", "yes"),
 
         # Additional parameters for stability and optimization
         # freeze_gpt2: in HMT, freeze embeddings, positional embeddings, ln_f, lm_head, attn blocks
