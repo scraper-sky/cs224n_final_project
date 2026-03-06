@@ -27,12 +27,13 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         "batch_size": int(os.environ.get("BATCH_SIZE", "2")),
         "max_length": int(os.environ.get("MAX_LENGTH", "512")),
         "lr": float(os.environ.get("LR", "5e-5")),
-        "max_steps": int(os.environ.get("MAX_STEPS", "1000")),
+        "max_steps": int(os.environ.get("MAX_STEPS", "250")),
         "checkpoint_dir": os.environ.get("CHECKPOINT_DIR", os.path.join(_project_root(), "checkpoints")),
         "save_every": int(os.environ.get("SAVE_EVERY", "500")),
         "seed": int(os.environ.get("SEED", "42")),
         "train_on_solution_only": os.environ.get("TRAIN_ON_SOLUTION_ONLY", "0").lower() in ("1", "true", "yes"),
         "append_answer": os.environ.get("APPEND_ANSWER", "1").lower() in ("1", "true", "yes"),
+        "direct_qa": os.environ.get("TRAIN_DIRECT_QA", "0").lower() in ("1", "true", "yes"),
 
         # Additional parameters for stability and optimization
         # freeze_gpt2: in HMT, freeze embeddings, positional embeddings, ln_f, lm_head, attn blocks
@@ -50,4 +51,6 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     if config.get("math_focused"):
         config["freeze_gpt2"] = False
         config["lr"] = 2e-5
+    if config.get("direct_qa"):
+        config["math_focused"] = True
     return config

@@ -37,7 +37,7 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
 
     # Pass freeze_gpt2 into load_hybrid (ignored by gpt2/mamba loaders via **kwargs pop).
     model_kwargs: dict[str, Any] = {}
-    if cfg.get("freeze_gpt2"):
+    if cfg.get("freeze_gpt2") and cfg["model_name"] == "hybrid":
         model_kwargs["freeze_gpt2"] = True
 
     model, tokenizer = get_model(cfg["model_name"], device=cfg["device"], **model_kwargs)
@@ -50,6 +50,7 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         max_length=cfg["max_length"],
         solution_only=cfg["train_on_solution_only"],
         append_answer=cfg.get("append_answer", True),
+        direct_qa=cfg.get("direct_qa", False),
         seed=cfg["seed"],
     )
 

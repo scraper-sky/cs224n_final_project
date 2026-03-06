@@ -4,10 +4,12 @@ import json
 import torch
 
 
-def _format_record(record: dict, solution_only: bool, append_answer: bool = True) -> str:
+def _format_record(record: dict, solution_only: bool, append_answer: bool = True, direct_qa: bool = False) -> str:
     question = (record.get("question") or "").strip()
     solution = (record.get("solution") or "").strip()
     answer = (record.get("final_answer") or "").strip()
+    if direct_qa and question and answer:
+        return f"Question: {question}\n\nFinal answer: {answer}"
     if solution_only:
         base = solution or question
     else:
@@ -18,11 +20,12 @@ def _format_record(record: dict, solution_only: bool, append_answer: bool = True
 
 
 class MathDataset(torch.utils.data.Dataset):
-    def __init__(self, jsonl_path: str, tokenizer, max_length: int = 512, solution_only: bool = False, append_answer: bool = True):
+    def __init__(self, jsonl_path: str, tokenizer, max_length: int = 512, solution_only: bool = False, append_answer: bool = True, direct_qa: bool = False):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.solution_only = solution_only
         self.append_answer = append_answer
+        self.direct_qa = direct_qa
         self.examples = []
         with open(jsonl_path, "r", encoding="utf-8") as f:
             for line in f:
@@ -30,7 +33,7 @@ class MathDataset(torch.utils.data.Dataset):
                 if not line:
                     continue
                 record = json.loads(line)
-                text = _format_record(record, solution_only, append_answer)
+                text = _format_record(record, solution_only, append_answer, direct_qa)
                 if not text:
                     continue
                 enc = tokenizer(
@@ -53,8 +56,8 @@ class MathDataset(torch.utils.data.Dataset):
         return self.examples[idx]
 
 
-def get_math_dataloader(jsonl_path: str, tokenizer, batch_size: int = 2, max_length: int = 512, solution_only: bool = False, append_answer: bool = True, seed: int = 42):
-    dataset = MathDataset(jsonl_path, tokenizer, max_length=max_length, solution_only=solution_only, append_answer=append_answer)
+def get_math_dataloader(jsonl_path: str, tokenizer, batch_size: int = 2, max_length: int = 512, solution_only: bool = False, append_answer: bool = True, direct_qa: bool = False, seed: int = 42):
+    dataset = MathDataset(jsonl_path, tokenizer, max_length=max_length, solution_only=solution_only, append_answer=append_answer, direct_qa=direct_qa)
     generator = torch.Generator()
     generator.manual_seed(seed)
     return torch.utils.data.DataLoader(

@@ -133,7 +133,7 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
             gold = _normalize(obj.get("final_answer") or "")
             if not question or not gold:
                 continue
-            prompt = f"{question}\n\nFinal answer:"
+            prompt = f"Question: {question}\n\nFinal answer:"
             enc = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=context_window)
             input_ids = enc["input_ids"].to(device)
             attention_mask = enc["attention_mask"].to(device)
