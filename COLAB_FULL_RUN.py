@@ -51,7 +51,7 @@ train_env["APPEND_ANSWER"] = "1"
 train_env["MAX_STEPS"] = "250"
 train_env["SAVE_EVERY"] = "125"
 train_env["BATCH_SIZE"] = "2"
-train_env["MAX_LENGTH"] = "512"
+train_env["MAX_LENGTH"] = "256"  # smaller to avoid CUDA OOM on Colab
 train_env["WARMUP_STEPS"] = "25"
 print("Training hybrid model...")
 subprocess.run(

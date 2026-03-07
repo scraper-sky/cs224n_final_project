@@ -45,7 +45,9 @@ def final_answer_to_string(final_answer) -> str:
 
 def main():
     import os
-    data_dir = os.environ.get("DATA_DIR") or os.path.join(os.getcwd(), "data")
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.abspath(os.path.join(_script_dir, "..", ".."))
+    data_dir = os.environ.get("DATA_DIR") or os.path.join(_project_root, "data")
     in_path = os.environ.get("MATH_OLYMPIAD_JSON", os.path.join(data_dir, "math_olympiad_questions.json"))
     out_path = os.environ.get("MATH_PREPROCESSED_JSONL", os.path.join(data_dir, "olympiad_preprocessed.jsonl"))
     # here we set the paths for the input and output files

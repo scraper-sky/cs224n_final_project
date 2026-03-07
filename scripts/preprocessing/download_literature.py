@@ -14,7 +14,9 @@ import random
 def main():
     from datasets import load_dataset
 
-    data_dir = os.environ.get("DATA_DIR") or os.path.join(os.getcwd(), "data")
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.abspath(os.path.join(_script_dir, "..", ".."))
+    data_dir = os.environ.get("DATA_DIR") or os.path.join(_project_root, "data")
     out_dir = data_dir
     os.makedirs(out_dir, exist_ok=True)
 

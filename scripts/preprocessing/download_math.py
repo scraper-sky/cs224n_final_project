@@ -16,7 +16,9 @@ def _load_olympiad_via_parquet(configs):
 
 
 def main():
-    data_dir = os.environ.get("DATA_DIR") or os.path.join(os.getcwd(), "data")
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.abspath(os.path.join(_script_dir, "..", ".."))
+    data_dir = os.environ.get("DATA_DIR") or os.path.join(_project_root, "data")
     out_path = os.environ.get("MATH_OLYMPIAD_JSON", os.path.join(data_dir, "math_olympiad_questions.json"))
     os.makedirs(data_dir, exist_ok=True)
 

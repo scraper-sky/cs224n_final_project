@@ -166,12 +166,14 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
 def main():
     from src.models import get_model
 
-    data_dir = os.environ.get("DATA_DIR", os.path.join(os.getcwd(), "data"))
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.abspath(os.path.join(_script_dir, "..", "..", ".."))
+    data_dir = os.environ.get("DATA_DIR") or os.path.join(_project_root, "data")
     chunks_path = os.environ.get("GUTENBERG_CHUNKS_JSONL", os.path.join(data_dir, "gutenberg_7000_1192.jsonl"))
     math_path = os.environ.get("MATH_PREPROCESSED_JSONL", os.path.join(data_dir, "olympiad_preprocessed.jsonl"))
     model_names = os.environ.get("EVAL_MODELS", "gpt2").split(",")
     device = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
-    results_path = os.environ.get("RESULTS_JSON", os.path.join(os.getcwd(), "eval_results.json"))
+    results_path = os.environ.get("RESULTS_JSON") or os.path.join(_project_root, "eval_results.json")
 
     # Total tokens fed to the model (context + target). Hard cap for GPT-2 is 1024.
     # Increase for Mamba to study long-context behaviour (e.g. CONTEXT_WINDOW=4096).
