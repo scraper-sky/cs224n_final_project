@@ -25,7 +25,7 @@ TOTAL_LEN = CONTEXT_LEN + TARGET_LEN
 def main():
     from src.models import get_tokenizer
 
-    data_dir = os.environ.get("DATA_DIR", os.path.join(PROJECT_ROOT, "data"))
+    data_dir = os.environ.get("DATA_DIR") or os.path.join(os.getcwd(), "data")
     in_path = os.environ.get("GUTENBERG_JSONL", os.path.join(data_dir, "gutenberg_literature.jsonl"))
     out_path = os.environ.get("GUTENBERG_CHUNKS_JSONL", os.path.join(data_dir, "gutenberg_7000_1192.jsonl"))
 

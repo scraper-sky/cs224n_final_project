@@ -16,8 +16,11 @@ os.chdir(BASE)
 subprocess.run(["rm", "-rf", "cs224n_final_project"], check=False)
 subprocess.run(["git", "clone", REPO], check=True)
 os.chdir(PROJ)
-
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt"], check=True)
+subprocess.run(
+    [sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt"],
+    check=True,
+    cwd=PROJ,
+)
 
 # --- 2. Environment ---
 os.environ["DATA_DIR"] = os.path.join(PROJ, "data")
@@ -26,18 +29,19 @@ os.environ["MATH_PREPROCESSED_JSONL"] = os.path.join(os.environ["DATA_DIR"], "ol
 os.environ["GUTENBERG_CHUNKS_JSONL"] = os.path.join(os.environ["DATA_DIR"], "gutenberg_7000_1192.jsonl")
 os.environ["RESULTS_JSON"] = os.path.join(PROJ, "eval_results.json")
 
-# --- 3. Data preparation ---
+# --- 3. Data preparation (cwd=PROJ so all scripts see correct paths) ---
+sp_kw = {"check": True, "env": os.environ, "cwd": PROJ}
 print("Downloading math...")
-subprocess.run([sys.executable, "scripts/preprocessing/download_math.py"], check=True, env=os.environ)
+subprocess.run([sys.executable, "scripts/preprocessing/download_math.py"], **sp_kw)
 
 print("Preprocessing math...")
-subprocess.run([sys.executable, "scripts/preprocessing/preprocess_math.py"], check=True, env=os.environ)
+subprocess.run([sys.executable, "scripts/preprocessing/preprocess_math.py"], **sp_kw)
 
 print("Downloading literature...")
-subprocess.run([sys.executable, "scripts/preprocessing/download_literature.py"], check=True, env=os.environ)
+subprocess.run([sys.executable, "scripts/preprocessing/download_literature.py"], **sp_kw)
 
 print("Preprocessing literature...")
-subprocess.run([sys.executable, "scripts/preprocessing/preprocess_literature.py"], check=True, env=os.environ)
+subprocess.run([sys.executable, "scripts/preprocessing/preprocess_literature.py"], **sp_kw)
 
 # --- 4. Training (hybrid, direct_qa, full fine-tune) ---
 train_env = os.environ.copy()
@@ -54,6 +58,7 @@ subprocess.run(
     [sys.executable, "-m", "src.training.run_training"],
     check=True,
     env=train_env,
+    cwd=PROJ,
 )
 
 # --- 5. Evaluation ---
@@ -70,6 +75,7 @@ subprocess.run(
     [sys.executable, "scripts/preprocessing/eval/eval_models.py"],
     check=True,
     env=eval_env,
+    cwd=PROJ,
 )
 
 print("\nDone. Results:", os.environ["RESULTS_JSON"])

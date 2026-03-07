@@ -18,7 +18,8 @@ def _project_root():
 
 
 def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    data_dir = os.environ.get("DATA_DIR", os.path.join(_project_root(), "data"))
+    # Prefer DATA_DIR env; fallback uses cwd/data so Colab block can set DATA_DIR explicitly
+    data_dir = os.environ.get("DATA_DIR") or os.path.join(os.getcwd(), "data")
     config = {
         "data_dir": data_dir,
         "math_preprocessed_jsonl": os.environ.get("MATH_PREPROCESSED_JSONL", os.path.join(data_dir, "olympiad_preprocessed.jsonl")),
@@ -28,7 +29,7 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         "max_length": int(os.environ.get("MAX_LENGTH", "512")),
         "lr": float(os.environ.get("LR", "5e-5")),
         "max_steps": int(os.environ.get("MAX_STEPS", "250")),
-        "checkpoint_dir": os.environ.get("CHECKPOINT_DIR", os.path.join(_project_root(), "checkpoints")),
+        "checkpoint_dir": os.environ.get("CHECKPOINT_DIR") or os.path.join(os.getcwd(), "checkpoints"),
         "save_every": int(os.environ.get("SAVE_EVERY", "500")),
         "seed": int(os.environ.get("SEED", "42")),
         "train_on_solution_only": os.environ.get("TRAIN_ON_SOLUTION_ONLY", "0").lower() in ("1", "true", "yes"),
