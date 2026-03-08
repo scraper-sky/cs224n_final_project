@@ -35,17 +35,17 @@ class LiteratureDataset(torch.utils.data.Dataset):
             start = rng.randint(0, len(ids) - self.max_length)
             segment = ids[start : start + self.max_length]
 
-        enc = self.tokenizer.pad(
-            {"input_ids": [segment]},
-            padding="max_length",
-            max_length=self.max_length,
-            truncation=True,
-            return_tensors="pt",
-            return_attention_mask=True,
-        )
+        pad_id = self.tokenizer.pad_token_id
+        if pad_id is None:
+            pad_id = self.tokenizer.eos_token_id
+        orig_len = len(segment)
+        if orig_len < self.max_length:
+            segment = segment + [pad_id] * (self.max_length - orig_len)
+        attention_mask = [1] * orig_len + [0] * (self.max_length - orig_len)
+
         return {
-            "input_ids": enc["input_ids"].squeeze(0),
-            "attention_mask": enc["attention_mask"].squeeze(0),
+            "input_ids": torch.tensor(segment, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
         }
 
 
