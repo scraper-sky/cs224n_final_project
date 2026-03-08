@@ -52,26 +52,20 @@ def compute_perplexity(model, tokenizer, chunks_path, device, context_window, ma
 
     with torch.inference_mode():
         for line in tqdm(lines, desc="perplexity"):
-            obj = json.loads(line)
-            ctx_ids = tokenizer.encode(obj["context_text"], add_special_tokens=False)
-            tgt_ids = tokenizer.encode(obj["target_text"], add_special_tokens=False)
-
-            # 1. Cap target to max_target_tokens.
-            tgt_ids = tgt_ids[:max_target_tokens]
-            # 2. Fill the remaining budget with context (most recent tokens).
-            ctx_budget = context_window - len(tgt_ids)
-            ctx_ids = ctx_ids[-ctx_budget:] if ctx_budget > 0 else []
-
-            all_ids = ctx_ids + tgt_ids
-            input_ids = torch.tensor([all_ids], dtype=torch.long).to(device)
-
-            # Mask context tokens so loss is computed only on target tokens.
-            labels = torch.full_like(input_ids, -100)
-            labels[0, len(ctx_ids):] = input_ids[0, len(ctx_ids):]
-            out = model(input_ids=input_ids, labels=labels)
-            n_tgt = len(tgt_ids)
-            total_loss += out.loss.item() * n_tgt
-            total_tokens += n_tgt
+                obj = json.loads(line)
+                ctx_ids = tokenizer.encode(obj["context_text"], add_special_tokens=False)
+                tgt_ids = tokenizer.encode(obj["target_text"], add_special_tokens=False)
+                tgt_ids = tgt_ids[:max_target_tokens]
+                ctx_budget = context_window - len(tgt_ids)
+                ctx_ids = ctx_ids[-ctx_budget:] if ctx_budget > 0 else []
+                all_ids = ctx_ids + tgt_ids
+                input_ids = torch.tensor([all_ids], dtype=torch.long).to(device)
+                labels = torch.full_like(input_ids, -100)
+                labels[0, len(ctx_ids):] = input_ids[0, len(ctx_ids):]
+                out = model(input_ids=input_ids, labels=labels)
+                n_tgt = len(tgt_ids)
+                total_loss += out.loss.item() * n_tgt
+                total_tokens += n_tgt
     return math.exp(total_loss / total_tokens) if total_tokens > 0 else float("inf")
 
 
