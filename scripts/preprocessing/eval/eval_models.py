@@ -62,10 +62,7 @@ def compute_perplexity(model, tokenizer, chunks_path, device, context_window, ma
                 input_ids = torch.tensor([all_ids], dtype=torch.long).to(device)
                 labels = torch.full_like(input_ids, -100)
                 labels[0, len(ctx_ids):] = input_ids[0, len(ctx_ids):]
-                kwargs = {}
-                if hasattr(model, "mamba_gate"):
-                    kwargs["use_mamba"] = False
-                out = model(input_ids=input_ids, labels=labels, **kwargs)
+                out = model(input_ids=input_ids, labels=labels)
                 n_tgt = len(tgt_ids)
                 total_loss += out.loss.item() * n_tgt
                 total_tokens += n_tgt
@@ -192,14 +189,15 @@ def main():
         all_results = {}
 
     checkpoint_path = os.environ.get("EVAL_CHECKPOINT", "")
-    for name in [n.strip() for n in model_names]:
+    for name in [n.strip() for n in model_names if n.strip()]:
         print(f"\n=== {name} ===")
         print(f"    context_window={context_window}  max_target_tokens={max_target_tokens}")
         model, tokenizer = get_model(name, device=device)
-        if checkpoint_path and os.path.isfile(checkpoint_path):
-            ckpt = torch.load(checkpoint_path, map_location=device)
+        ckpt_path = checkpoint_path if name == "hybrid" else ""
+        if ckpt_path and os.path.isfile(ckpt_path):
+            ckpt = torch.load(ckpt_path, map_location=device)
             model.load_state_dict(ckpt["model_state_dict"], strict=True)
-            print(f"    loaded checkpoint: {checkpoint_path} (step {ckpt.get('step', '?')})")
+            print(f"    loaded checkpoint: {ckpt_path} (step {ckpt.get('step', '?')})")
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 

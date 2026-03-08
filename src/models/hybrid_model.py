@@ -63,7 +63,6 @@ class HybridMambaTransformer(nn.Module):
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.LongTensor] = None,
-        use_mamba: bool = True,
         **kwargs: Any,
     ):
         seq_len = input_ids.size(1)
@@ -76,13 +75,10 @@ class HybridMambaTransformer(nn.Module):
         for layer in self.gpt2_layers:
             h_attn = layer(h_attn, attention_mask=attn_mask_4d, use_cache=False)[0]
 
-        if use_mamba:
-            h_mamba = self.mamba_branch[0](x)
-            h_mamba = self.mamba_branch[1](h_mamba)
-            gate = torch.clamp(self.mamba_gate, 0.0, 0.1)
-            h = h_attn + gate * h_mamba
-        else:
-            h = h_attn
+        h_mamba = self.mamba_branch[0](x)
+        h_mamba = self.mamba_branch[1](h_mamba)
+        gate = torch.clamp(self.mamba_gate, 0.0, 0.03)
+        h = h_attn + gate * h_mamba
         h = self.ln_f(h)
         logits = self.lm_head(h)
 

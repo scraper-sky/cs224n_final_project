@@ -19,7 +19,7 @@ def _mixed_batch_iterator(
     lit_dl: torch.utils.data.DataLoader,
     literature_ratio: float,
     seed: int,
-) -> Iterator[tuple[dict, bool]]:
+) -> Iterator[dict]:
     rng = random.Random(seed)
     math_iter: Optional[Iterator] = None
     lit_iter: Optional[Iterator] = None
@@ -46,9 +46,9 @@ def _mixed_batch_iterator(
 
     while True:
         if rng.random() < literature_ratio:
-            yield _next_lit(), False
+            yield _next_lit()
         else:
-            yield _next_math(), True
+            yield _next_math()
 
 
 def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optional[dict[str, Any]] = None):
@@ -113,8 +113,7 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
     model.train()
 
     while step < cfg["max_steps"]:
-        item = next(batch_iter)
-        batch, use_mamba = (item[0], item[1]) if isinstance(item, tuple) else (item, True)
+        batch = next(batch_iter)
         input_ids = batch["input_ids"].to(cfg["device"])
         attention_mask = batch["attention_mask"].to(cfg["device"])
         labels = input_ids.clone()
@@ -125,7 +124,7 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
             param_group["lr"] = cfg["lr"] * lr_scale
 
         optimizer.zero_grad()
-        out = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels, use_mamba=use_mamba)
+        out = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
         loss = out.loss
         gate_reg = cfg.get("gate_reg", 0.0)
         if gate_reg > 0 and hasattr(model, "mamba_gate"):

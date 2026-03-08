@@ -27,8 +27,8 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         "math_focused": os.environ.get("TRAIN_MATH_FOCUSED", "0").lower() in ("1", "true", "yes"),
         "balanced_training": os.environ.get("BALANCED_TRAINING", "0").lower() in ("1", "true", "yes"),
         "literature_jsonl": os.environ.get("GUTENBERG_CHUNKS_JSONL", os.path.join(data_dir, "gutenberg_7000_1192.jsonl")),
-        "literature_ratio": float(os.environ.get("LITERATURE_RATIO", "0.6")),
-        "gate_reg": float(os.environ.get("GATE_REG", "0.1")),
+        "literature_ratio": float(os.environ.get("LITERATURE_RATIO", "0.65")),
+        "gate_reg": float(os.environ.get("GATE_REG", "0.3")),
         "warmup_steps": int(os.environ.get("WARMUP_STEPS", "100")),
         "max_grad_norm": float(os.environ.get("MAX_GRAD_NORM", "1.0")),
     }
