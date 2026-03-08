@@ -41,6 +41,7 @@ class HybridMambaTransformer(nn.Module):
         self.mamba_branch = nn.Sequential(
             MambaBlock(mamba_config, layer_idx=0),
             nn.Linear(hidden_size, hidden_size),
+            nn.LayerNorm(hidden_size),
         )
         self.mamba_gate = nn.Parameter(torch.zeros(1))
         self.ln_f = nn.LayerNorm(hidden_size)
@@ -77,7 +78,8 @@ class HybridMambaTransformer(nn.Module):
 
         h_mamba = self.mamba_branch[0](x)
         h_mamba = self.mamba_branch[1](h_mamba)
-        gate = torch.clamp(self.mamba_gate, 0.0, 0.03)
+        h_mamba = self.mamba_branch[2](h_mamba)
+        gate = torch.clamp(self.mamba_gate, 0.0, 0.05)
         h = h_attn + gate * h_mamba
         h = self.ln_f(h)
         logits = self.lm_head(h)
