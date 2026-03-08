@@ -11,8 +11,10 @@
 #   - freeze_gpt2 flag (via model kwargs): forwarded to load_hybrid so only Mamba block
 #     parameters are updated during Phase 1 training.
 
+import itertools
 import os
-from typing import Any, Optional
+import random
+from typing import Any, Iterator, Optional
 
 import torch
 
@@ -26,9 +28,47 @@ def _get_lr_scale(step: int, warmup_steps: int) -> float:
     return min(1.0, (step + 1) / warmup_steps)
 
 
+def _mixed_batch_iterator(
+    math_dl: torch.utils.data.DataLoader,
+    lit_dl: torch.utils.data.DataLoader,
+    literature_ratio: float,
+    seed: int,
+) -> Iterator[dict]:
+    rng = random.Random(seed)
+    math_iter: Optional[Iterator] = None
+    lit_iter: Optional[Iterator] = None
+
+    def _next_math() -> dict:
+        nonlocal math_iter
+        if math_iter is None:
+            math_iter = iter(math_dl)
+        try:
+            return next(math_iter)
+        except StopIteration:
+            math_iter = iter(math_dl)
+            return next(math_iter)
+
+    def _next_lit() -> dict:
+        nonlocal lit_iter
+        if lit_iter is None:
+            lit_iter = iter(lit_dl)
+        try:
+            return next(lit_iter)
+        except StopIteration:
+            lit_iter = iter(lit_dl)
+            return next(lit_iter)
+
+    while True:
+        if rng.random() < literature_ratio:
+            yield _next_lit()
+        else:
+            yield _next_math()
+
+
 def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optional[dict[str, Any]] = None):
     from .training_config import get_config
     from .math_dataloader import get_math_dataloader
+    from .literature_dataloader import get_literature_dataloader
 
     cfg = get_config(config_overrides or config)
     torch.manual_seed(cfg["seed"])
@@ -43,7 +83,7 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
     model, tokenizer = get_model(cfg["model_name"], device=cfg["device"], **model_kwargs)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    dataloader = get_math_dataloader(
+    math_dataloader = get_math_dataloader(
         cfg["math_preprocessed_jsonl"],
         tokenizer,
         batch_size=cfg["batch_size"],
@@ -53,6 +93,29 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         direct_qa=cfg.get("direct_qa", False),
         seed=cfg["seed"],
     )
+
+    if cfg.get("balanced_training"):
+        lit_path = cfg.get("literature_jsonl")
+        if not os.path.isfile(lit_path):
+            raise FileNotFoundError(
+                f"Balanced training requires literature data at {lit_path}. "
+                "Run scripts/preprocessing/preprocess_literature.py and download_literature.py first."
+            )
+        lit_dataloader = get_literature_dataloader(
+            lit_path,
+            tokenizer,
+            batch_size=cfg["batch_size"],
+            max_length=cfg["max_length"],
+            seed=cfg["seed"],
+        )
+        batch_iter = _mixed_batch_iterator(
+            math_dataloader,
+            lit_dataloader,
+            literature_ratio=cfg.get("literature_ratio", 0.5),
+            seed=cfg["seed"],
+        )
+    else:
+        batch_iter = itertools.cycle(math_dataloader)
 
     # Only optimize parameters that require gradients (respects freeze_gpt2)
     trainable_params = [p for p in model.parameters() if p.requires_grad]
@@ -66,42 +129,43 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
     model.train()
 
     while step < cfg["max_steps"]:
-        for batch in dataloader:
-            if step >= cfg["max_steps"]:
-                break
-            input_ids = batch["input_ids"].to(cfg["device"])
-            attention_mask = batch["attention_mask"].to(cfg["device"])
-            labels = input_ids.clone()
-            labels[attention_mask == 0] = -100
+        batch = next(batch_iter)
+        input_ids = batch["input_ids"].to(cfg["device"])
+        attention_mask = batch["attention_mask"].to(cfg["device"])
+        labels = input_ids.clone()
+        labels[attention_mask == 0] = -100
 
-            # Apply linear LR warmup (scale base learning rate each step)
-            lr_scale = _get_lr_scale(step, warmup_steps)
-            for param_group in optimizer.param_groups:
-                param_group["lr"] = cfg["lr"] * lr_scale
+        # Apply linear LR warmup (scale base learning rate each step)
+        lr_scale = _get_lr_scale(step, warmup_steps)
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = cfg["lr"] * lr_scale
 
-            optimizer.zero_grad()
-            out = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            loss = out.loss
-            loss.backward()
+        optimizer.zero_grad()
+        out = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+        loss = out.loss
+        gate_reg = cfg.get("gate_reg", 0.0)
+        if gate_reg > 0 and hasattr(model, "mamba_gate"):
+            loss = loss + gate_reg * (model.mamba_gate**2).sum()
+        loss.backward()
 
-            # Gradient clipping for starting from a high-loss initialisation
-            if max_grad_norm > 0:
-                torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
+        # Gradient clipping for starting from a high-loss initialisation
+        if max_grad_norm > 0:
+            torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
 
-            optimizer.step()
-            step += 1
+        optimizer.step()
+        step += 1
 
-            if step % 50 == 0:
-                print(f"step {step:>5}  loss {loss.item():.4f}  lr {cfg['lr'] * lr_scale:.2e}")
+        if step % 50 == 0:
+            print(f"step {step:>5}  loss {loss.item():.4f}  lr {cfg['lr'] * lr_scale:.2e}")
 
-            if step % cfg["save_every"] == 0 and step > 0:
-                ckpt_path = os.path.join(cfg["checkpoint_dir"], f"{cfg['model_name']}_step{step}.pt")
-                torch.save({
-                    "step": step,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                }, ckpt_path)
-                print(f"saved {ckpt_path}")
+        if step % cfg["save_every"] == 0 and step > 0:
+            ckpt_path = os.path.join(cfg["checkpoint_dir"], f"{cfg['model_name']}_step{step}.pt")
+            torch.save({
+                "step": step,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+            }, ckpt_path)
+            print(f"saved {ckpt_path}")
 
     print("training finished")
 

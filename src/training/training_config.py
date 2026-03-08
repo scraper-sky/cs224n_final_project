@@ -40,6 +40,10 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         # so only Mamba blocks are updated.
         "freeze_gpt2": os.environ.get("FREEZE_GPT2", "0").lower() in ("1", "true", "yes"),
         "math_focused": os.environ.get("TRAIN_MATH_FOCUSED", "0").lower() in ("1", "true", "yes"),
+        "balanced_training": os.environ.get("BALANCED_TRAINING", "0").lower() in ("1", "true", "yes"),
+        "literature_jsonl": os.environ.get("GUTENBERG_CHUNKS_JSONL", os.path.join(data_dir, "gutenberg_7000_1192.jsonl")),
+        "literature_ratio": float(os.environ.get("LITERATURE_RATIO", "0.5")),
+        "gate_reg": float(os.environ.get("GATE_REG", "0.01")),
         # warmup_steps: number of steps over which LR linearly ramps from 0 to cfg["lr"].
         # (set to 10% of max_steps to prevent large gradient updates in early steps)
         "warmup_steps": int(os.environ.get("WARMUP_STEPS", "100")),
@@ -48,9 +52,10 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     }
     if overrides:
         config.update(overrides)
-    if config.get("math_focused"):
-        config["freeze_gpt2"] = False
-        config["lr"] = 2e-5
     if config.get("direct_qa"):
         config["math_focused"] = True
+    if config.get("math_focused"):
+        config["lr"] = 2e-5
+        if os.environ.get("FREEZE_GPT2", "0").lower() not in ("1", "true", "yes"):
+            config["freeze_gpt2"] = False
     return config
