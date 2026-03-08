@@ -8,6 +8,7 @@ from .tokenizer import get_tokenizer
 from .gpt2_loader import load_gpt2
 from .mamba_loader import load_mamba
 from .hybrid_model import load_hybrid
+from .hybrid_llm_loader import load_hybrid_llm
 
 
 def get_model(
@@ -28,4 +29,4 @@ def get_model(
 
 def list_models() -> list[str]:
     # this lists the models that are available to use in the get_model function
-    return ["gpt2", "mamba", "hybrid"]
+    return ["gpt2", "mamba", "hybrid", "hybrid_llm"]
