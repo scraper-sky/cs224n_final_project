@@ -41,7 +41,7 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         if os.environ.get("FREEZE_GPT2", "0").lower() not in ("1", "true", "yes"):
             config["freeze_gpt2"] = False
     if config.get("model_name") == "mamba_selective":
-        config["lr"] = 2e-5
+        config["lr"] = 3e-5
         if config["warmup_steps"] < 50:
             config["warmup_steps"] = 50
     return config

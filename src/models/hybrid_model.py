@@ -95,6 +95,24 @@ class SelectiveContextAttention(nn.Module):
         return out
 
 
+_MAMBA_LAYERS = None
+
+def _get_mamba_layers():
+    global _MAMBA_LAYERS
+    if _MAMBA_LAYERS is None:
+        from transformers import MambaModel
+        print("Loading pretrained Mamba layers...")
+        full_model = MambaModel.from_pretrained("state-spaces/mamba-130m-hf")
+        _MAMBA_LAYERS = [layer for layer in full_model.layers[:12]]
+        for layer in _MAMBA_LAYERS:
+            for param in layer.parameters():
+                param.requires_grad = False
+        del full_model
+        torch.cuda.empty_cache()
+        print("Mamba layers loaded and frozen")
+    return _MAMBA_LAYERS
+
+
 class MambaSelectiveContextAttention(nn.Module):
     def __init__(
         self,
@@ -105,9 +123,6 @@ class MambaSelectiveContextAttention(nn.Module):
         layer_idx: int = 0,
     ):
         super().__init__()
-        from transformers import MambaConfig
-        from transformers.models.mamba.modeling_mamba import MambaBlock
-
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.head_dim = hidden_size // num_heads
@@ -119,28 +134,19 @@ class MambaSelectiveContextAttention(nn.Module):
         self.attn_dropout = nn.Dropout(dropout)
         self.resid_dropout = nn.Dropout(dropout)
 
-        from transformers import MambaModel
-        mamba_pretrained = MambaModel.from_pretrained("state-spaces/mamba-130m-hf")
-        if layer_idx < len(mamba_pretrained.layers):
-            self.mamba_selector = mamba_pretrained.layers[layer_idx]
-        else:
-            self.mamba_selector = mamba_pretrained.layers[0]
-
-        for param in self.mamba_selector.parameters():
-            param.requires_grad = False
+        mamba_layers = _get_mamba_layers()
+        self.mamba_selector = mamba_layers[layer_idx]
 
         self.mamba_input_ln = nn.LayerNorm(hidden_size)
-        self.mamba_output_ln = nn.LayerNorm(hidden_size)
-        self.mamba_scale = nn.Parameter(torch.tensor(0.1))
         self.selectivity_proj = nn.Linear(hidden_size, 1)
 
         nn.init.normal_(self.c_attn.weight, mean=0.0, std=0.02)
         nn.init.zeros_(self.c_attn.bias)
-        nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02)
+        nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02 / (2 * 12)**0.5)
         nn.init.zeros_(self.c_proj.bias)
 
         nn.init.normal_(self.selectivity_proj.weight, mean=0.0, std=0.01)
-        nn.init.constant_(self.selectivity_proj.bias, 0.0)
+        nn.init.zeros_(self.selectivity_proj.bias)
 
         self.local_weight = nn.Parameter(torch.tensor(0.5))
         self.global_weight = nn.Parameter(torch.tensor(0.5))
@@ -167,11 +173,9 @@ class MambaSelectiveContextAttention(nn.Module):
 
         with torch.no_grad():
             x_for_mamba = self.mamba_input_ln(x)
-            mamba_raw = self.mamba_selector(x_for_mamba)
+            mamba_features = self.mamba_selector(x_for_mamba)
 
-        mamba_normed = self.mamba_output_ln(mamba_raw)
-        mamba_scaled = self.mamba_scale * mamba_normed
-        selectivity_logits = self.selectivity_proj(mamba_scaled)
+        selectivity_logits = self.selectivity_proj(mamba_features)
         selectivity_scores = torch.sigmoid(selectivity_logits)
 
         selectivity_scores = selectivity_scores.transpose(1, 2).unsqueeze(2)
@@ -270,6 +274,11 @@ class MambaSelectiveContextBlock(nn.Module):
             nn.Linear(intermediate, hidden_size),
             nn.Dropout(dropout),
         )
+
+        nn.init.normal_(self.mlp[0].weight, mean=0.0, std=0.02)
+        nn.init.zeros_(self.mlp[0].bias)
+        nn.init.normal_(self.mlp[2].weight, mean=0.0, std=0.02 / (2 * 12)**0.5)
+        nn.init.zeros_(self.mlp[2].bias)
 
     def forward(
         self,
