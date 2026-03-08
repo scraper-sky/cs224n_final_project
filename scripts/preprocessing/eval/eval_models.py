@@ -192,7 +192,7 @@ def main():
         print(f"\n=== {name} ===")
         print(f"    context_window={context_window}  max_target_tokens={max_target_tokens}")
         model, tokenizer = get_model(name, device=device)
-        ckpt_path = checkpoint_path if name in ("hybrid", "selective") else ""
+        ckpt_path = checkpoint_path if name in ("hybrid", "selective", "mamba_selective") else ""
         if ckpt_path and os.path.isfile(ckpt_path):
             ckpt = torch.load(ckpt_path, map_location=device)
             model.load_state_dict(ckpt["model_state_dict"], strict=True)
