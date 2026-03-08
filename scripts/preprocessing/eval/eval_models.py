@@ -62,7 +62,10 @@ def compute_perplexity(model, tokenizer, chunks_path, device, context_window, ma
                 input_ids = torch.tensor([all_ids], dtype=torch.long).to(device)
                 labels = torch.full_like(input_ids, -100)
                 labels[0, len(ctx_ids):] = input_ids[0, len(ctx_ids):]
-                out = model(input_ids=input_ids, labels=labels)
+                kwargs = {}
+                if hasattr(model, "mamba_gate"):
+                    kwargs["use_mamba"] = False
+                out = model(input_ids=input_ids, labels=labels, **kwargs)
                 n_tgt = len(tgt_ids)
                 total_loss += out.loss.item() * n_tgt
                 total_tokens += n_tgt
@@ -92,10 +95,10 @@ def _match_answer(gold: str, predicted: str) -> bool:
 
 
 def _greedy_decode(model, input_ids, max_new_tokens, eos_token_id):
-    # manual greedy decode for models without a .generate() method (e.g. HybridMambaTransformer)
     generated = input_ids.clone()
+    kwargs = {"use_mamba": True} if hasattr(model, "mamba_gate") else {}
     for _ in range(max_new_tokens):
-        out = model(input_ids=generated)
+        out = model(input_ids=generated, **kwargs)
         next_token = out.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         generated = torch.cat([generated, next_token], dim=1)
         if next_token.item() == eos_token_id:
