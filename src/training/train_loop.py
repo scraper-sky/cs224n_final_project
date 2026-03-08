@@ -128,7 +128,7 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         loss = out.loss
 
         if torch.isnan(loss) or torch.isinf(loss):
-            print(f"WARNING: NaN or Inf loss detected at step {step}. Skipping this batch.")
+            print(f"WARNING: NaN loss at step {step}, skipping")
             continue
 
         gate_reg = cfg.get("gate_reg", 0.0)
@@ -138,14 +138,13 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
 
         loss.backward()
 
-        has_nan_grad = False
-        for param in trainable_params:
-            if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
-                has_nan_grad = True
-                break
+        has_nan_grad = any(
+            param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any())
+            for param in trainable_params
+        )
 
         if has_nan_grad:
-            print(f"WARNING: NaN gradients detected at step {step}. Skipping optimizer step.")
+            print(f"WARNING: NaN gradients at step {step}, skipping")
             optimizer.zero_grad()
             continue
 

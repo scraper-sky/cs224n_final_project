@@ -119,13 +119,19 @@ class MambaSelectiveContextAttention(nn.Module):
         self.attn_dropout = nn.Dropout(dropout)
         self.resid_dropout = nn.Dropout(dropout)
 
-        mamba_config = MambaConfig.from_pretrained("state-spaces/mamba-130m-hf")
-        if mamba_config.hidden_size != hidden_size:
-            mamba_config.hidden_size = hidden_size
-            mamba_config.intermediate_size = hidden_size * 4
-        self.mamba_selector = MambaBlock(mamba_config, layer_idx=layer_idx)
-        self.mamba_ln = nn.LayerNorm(hidden_size)
-        self.mamba_scale = 0.1
+        from transformers import MambaModel
+        mamba_pretrained = MambaModel.from_pretrained("state-spaces/mamba-130m-hf")
+        if layer_idx < len(mamba_pretrained.layers):
+            self.mamba_selector = mamba_pretrained.layers[layer_idx]
+        else:
+            self.mamba_selector = mamba_pretrained.layers[0]
+
+        for param in self.mamba_selector.parameters():
+            param.requires_grad = False
+
+        self.mamba_input_ln = nn.LayerNorm(hidden_size)
+        self.mamba_output_ln = nn.LayerNorm(hidden_size)
+        self.mamba_scale = nn.Parameter(torch.tensor(0.1))
         self.selectivity_proj = nn.Linear(hidden_size, 1)
 
         nn.init.normal_(self.c_attn.weight, mean=0.0, std=0.02)
@@ -134,7 +140,7 @@ class MambaSelectiveContextAttention(nn.Module):
         nn.init.zeros_(self.c_proj.bias)
 
         nn.init.normal_(self.selectivity_proj.weight, mean=0.0, std=0.01)
-        nn.init.zeros_(self.selectivity_proj.bias)
+        nn.init.constant_(self.selectivity_proj.bias, 0.0)
 
         self.local_weight = nn.Parameter(torch.tensor(0.5))
         self.global_weight = nn.Parameter(torch.tensor(0.5))
@@ -145,6 +151,7 @@ class MambaSelectiveContextAttention(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         B, T, C = x.shape
+
         qkv = self.c_attn(x)
         q, k, v = qkv.split(self.hidden_size, dim=-1)
         q = q.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
@@ -158,14 +165,17 @@ class MambaSelectiveContextAttention(nn.Module):
         )
         attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), float("-inf"))
 
-        mamba_raw = self.mamba_selector(x)
-        if torch.isnan(mamba_raw).any():
-            mamba_raw = torch.zeros_like(mamba_raw)
-        mamba_raw = torch.clamp(mamba_raw, -10.0, 10.0)
-        mamba_out = self.mamba_ln(self.mamba_scale * mamba_raw)
-        selectivity_scores = torch.sigmoid(self.selectivity_proj(mamba_out))
+        with torch.no_grad():
+            x_for_mamba = self.mamba_input_ln(x)
+            mamba_raw = self.mamba_selector(x_for_mamba)
+
+        mamba_normed = self.mamba_output_ln(mamba_raw)
+        mamba_scaled = self.mamba_scale * mamba_normed
+        selectivity_logits = self.selectivity_proj(mamba_scaled)
+        selectivity_scores = torch.sigmoid(selectivity_logits)
+
         selectivity_scores = selectivity_scores.transpose(1, 2).unsqueeze(2)
-        attn_modulated = attn_scores * (0.2 + 0.8 * selectivity_scores)
+        attn_modulated = attn_scores * (0.5 + 0.5 * selectivity_scores)
 
         if attention_mask is not None:
             attn_scores = attn_scores + attention_mask
@@ -622,8 +632,4 @@ def _init_mamba_selective_from_gpt2(model: MambaSelectiveContextTransformer) -> 
     model.ln_f.weight.data.copy_(gpt2.transformer.ln_f.weight)
     model.ln_f.bias.data.copy_(gpt2.transformer.ln_f.bias)
     model.lm_head.weight.data.copy_(gpt2.lm_head.weight)
-
-    with torch.no_grad():
-        model.lm_head.weight.data *= 0.5
-
     del gpt2
