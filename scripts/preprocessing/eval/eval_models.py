@@ -93,9 +93,8 @@ def _match_answer(gold: str, predicted: str) -> bool:
 
 def _greedy_decode(model, input_ids, max_new_tokens, eos_token_id):
     generated = input_ids.clone()
-    kwargs = {"use_mamba": True} if hasattr(model, "mamba_gate") else {}
     for _ in range(max_new_tokens):
-        out = model(input_ids=generated, **kwargs)
+        out = model(input_ids=generated)
         next_token = out.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         generated = torch.cat([generated, next_token], dim=1)
         if next_token.item() == eos_token_id:
@@ -193,7 +192,7 @@ def main():
         print(f"\n=== {name} ===")
         print(f"    context_window={context_window}  max_target_tokens={max_target_tokens}")
         model, tokenizer = get_model(name, device=device)
-        ckpt_path = checkpoint_path if name == "hybrid" else ""
+        ckpt_path = checkpoint_path if name in ("hybrid", "selective") else ""
         if ckpt_path and os.path.isfile(ckpt_path):
             ckpt = torch.load(ckpt_path, map_location=device)
             model.load_state_dict(ckpt["model_state_dict"], strict=True)

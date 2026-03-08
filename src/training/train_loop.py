@@ -128,7 +128,8 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         loss = out.loss
         gate_reg = cfg.get("gate_reg", 0.0)
         if gate_reg > 0 and hasattr(model, "mamba_gate"):
-            loss = loss + gate_reg * (model.mamba_gate**2).sum()
+            g = torch.sigmoid(model.mamba_gate)
+            loss = loss + gate_reg * (g**2).sum()
         loss.backward()
 
         if max_grad_norm > 0:
