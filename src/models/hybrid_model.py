@@ -77,8 +77,8 @@ class HybridMambaTransformer(nn.Module):
 
         h_mamba = self.mamba_branch[0](x)
         h_mamba = self.mamba_branch[1](h_mamba)
-
-        h = h_attn + self.mamba_gate * h_mamba
+        gate = torch.clamp(self.mamba_gate, 0.0, 0.1)
+        h = h_attn + gate * h_mamba
         h = self.ln_f(h)
         logits = self.lm_head(h)
 
