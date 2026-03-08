@@ -126,14 +126,33 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         optimizer.zero_grad()
         out = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
         loss = out.loss
+
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"WARNING: NaN or Inf loss detected at step {step}. Skipping this batch.")
+            continue
+
         gate_reg = cfg.get("gate_reg", 0.0)
         if gate_reg > 0 and hasattr(model, "mamba_gate"):
             g = torch.sigmoid(model.mamba_gate)
             loss = loss + gate_reg * (g**2).sum()
+
         loss.backward()
 
+        has_nan_grad = False
+        for param in trainable_params:
+            if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
+                has_nan_grad = True
+                break
+
+        if has_nan_grad:
+            print(f"WARNING: NaN gradients detected at step {step}. Skipping optimizer step.")
+            optimizer.zero_grad()
+            continue
+
         if max_grad_norm > 0:
-            torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
+            grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
+            if step % 50 == 0 and grad_norm > max_grad_norm * 0.5:
+                print(f"  (grad_norm: {grad_norm:.2f})")
 
         optimizer.step()
         step += 1

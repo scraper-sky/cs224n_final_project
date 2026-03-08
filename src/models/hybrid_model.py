@@ -124,7 +124,17 @@ class MambaSelectiveContextAttention(nn.Module):
             mamba_config.hidden_size = hidden_size
             mamba_config.intermediate_size = hidden_size * 4
         self.mamba_selector = MambaBlock(mamba_config, layer_idx=layer_idx)
+        self.mamba_ln = nn.LayerNorm(hidden_size)
+        self.mamba_scale = 0.1
         self.selectivity_proj = nn.Linear(hidden_size, 1)
+
+        nn.init.normal_(self.c_attn.weight, mean=0.0, std=0.02)
+        nn.init.zeros_(self.c_attn.bias)
+        nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02)
+        nn.init.zeros_(self.c_proj.bias)
+
+        nn.init.normal_(self.selectivity_proj.weight, mean=0.0, std=0.01)
+        nn.init.zeros_(self.selectivity_proj.bias)
 
         self.local_weight = nn.Parameter(torch.tensor(0.5))
         self.global_weight = nn.Parameter(torch.tensor(0.5))
@@ -148,7 +158,11 @@ class MambaSelectiveContextAttention(nn.Module):
         )
         attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), float("-inf"))
 
-        mamba_out = self.mamba_selector(x)
+        mamba_raw = self.mamba_selector(x)
+        if torch.isnan(mamba_raw).any():
+            mamba_raw = torch.zeros_like(mamba_raw)
+        mamba_raw = torch.clamp(mamba_raw, -10.0, 10.0)
+        mamba_out = self.mamba_ln(self.mamba_scale * mamba_raw)
         selectivity_scores = torch.sigmoid(self.selectivity_proj(mamba_out))
         selectivity_scores = selectivity_scores.transpose(1, 2).unsqueeze(2)
         attn_modulated = attn_scores * (0.2 + 0.8 * selectivity_scores)
@@ -608,4 +622,8 @@ def _init_mamba_selective_from_gpt2(model: MambaSelectiveContextTransformer) -> 
     model.ln_f.weight.data.copy_(gpt2.transformer.ln_f.weight)
     model.ln_f.bias.data.copy_(gpt2.transformer.ln_f.bias)
     model.lm_head.weight.data.copy_(gpt2.lm_head.weight)
+
+    with torch.no_grad():
+        model.lm_head.weight.data *= 0.5
+
     del gpt2

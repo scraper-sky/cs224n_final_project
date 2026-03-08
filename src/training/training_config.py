@@ -28,7 +28,7 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         "balanced_training": os.environ.get("BALANCED_TRAINING", "0").lower() in ("1", "true", "yes"),
         "literature_jsonl": os.environ.get("GUTENBERG_CHUNKS_JSONL", os.path.join(data_dir, "gutenberg_7000_1192.jsonl")),
         "literature_ratio": float(os.environ.get("LITERATURE_RATIO", "0.65")),
-        "gate_reg": float(os.environ.get("GATE_REG", "0.3")),
+        "gate_reg": float(os.environ.get("GATE_REG", "0.0")),
         "warmup_steps": int(os.environ.get("WARMUP_STEPS", "100")),
         "max_grad_norm": float(os.environ.get("MAX_GRAD_NORM", "1.0")),
     }
@@ -40,4 +40,8 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         config["lr"] = 2e-5
         if os.environ.get("FREEZE_GPT2", "0").lower() not in ("1", "true", "yes"):
             config["freeze_gpt2"] = False
+    if config.get("model_name") == "mamba_selective":
+        config["lr"] = 5e-6
+        if config["warmup_steps"] < 100:
+            config["warmup_steps"] = 100
     return config
