@@ -139,6 +139,7 @@ def main():
     data_dir = os.environ.get("DATA_DIR") or os.path.join(_project_root, "data")
     chunks_path = os.environ.get("GUTENBERG_CHUNKS_JSONL", os.path.join(data_dir, "gutenberg_7000_1192.jsonl"))
     math_path = os.environ.get("MATH_PREPROCESSED_JSONL", os.path.join(data_dir, "olympiad_preprocessed.jsonl"))
+    secondary_math_path = os.environ.get("SECONDARY_MATH_PREPROCESSED_JSONL", os.path.join(data_dir, "secondary_math_preprocessed.jsonl"))
     model_names = os.environ.get("EVAL_MODELS", "gpt2").split(",")
     device = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
     results_path = os.environ.get("RESULTS_JSON") or os.path.join(_project_root, "eval_results.json")
@@ -184,10 +185,18 @@ def main():
             context_window_math, max_new_tokens_math, max_math_samples,
         )
         print(f"  exact match (math):       {em:.4f}")
+        em_secondary = None
+        if os.path.isfile(secondary_math_path):
+            em_secondary = compute_exact_match(
+                model, tokenizer, secondary_math_path, device,
+                context_window_math, max_new_tokens_math, max_math_samples,
+            )
+            print(f"  exact match (secondary): {em_secondary:.4f}")
 
         all_results[name] = {
             "perplexity_literature": round(perplexity, 4),
             "exact_match_math": round(em, 4),
+            "exact_match_secondary": round(em_secondary, 4) if em_secondary is not None else None,
             "context_window": context_window,
             "max_target_tokens": max_target_tokens,
             "context_window_math": context_window_math,
