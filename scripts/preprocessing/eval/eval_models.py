@@ -75,6 +75,11 @@ def _greedy_decode(model, input_ids, max_new_tokens, eos_token_id):
     return generated
 
 
+def _maybe_empty_cuda_cache(device):
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+
 def compute_exact_match(model, tokenizer, math_path, device, context_window, max_new_tokens, max_samples):
     model.eval()
     correct = 0
@@ -89,6 +94,7 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
     debug_samples = []
     with torch.inference_mode():
         for line in tqdm(lines, desc="exact match"):
+            _maybe_empty_cuda_cache(device)
             obj = json.loads(line)
             question = (obj.get("question") or "").strip()
             gold = _normalize(obj.get("final_answer") or "")
@@ -109,7 +115,7 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
             else:
                 gen_ids = _greedy_decode(model, input_ids, max_new_tokens, tokenizer.eos_token_id)
 
-            new_ids = gen_ids[0, input_ids.shape[1]:]
+            new_ids = gen_ids[0, input_ids.shape[1]:].cpu()
             predicted = _normalize(tokenizer.decode(new_ids, skip_special_tokens=True))
             if _match_answer(gold, predicted):
                 correct += 1
@@ -139,6 +145,8 @@ def main():
     max_target_tokens = int(os.environ.get("MAX_TARGET_TOKENS", "512"))
 
     max_new_tokens = int(os.environ.get("MAX_NEW_TOKENS", "256"))
+    context_window_math = int(os.environ.get("CONTEXT_WINDOW_MATH", "512"))
+    max_new_tokens_math = int(os.environ.get("MAX_NEW_TOKENS_MATH", "128"))
     max_lit_samples = int(os.environ.get("MAX_LIT_SAMPLES", "50"))
     max_math_samples = int(os.environ.get("MAX_MATH_SAMPLES", "100"))
 
@@ -152,6 +160,7 @@ def main():
     for name in [n.strip() for n in model_names if n.strip()]:
         print(f"\n=== {name} ===")
         print(f"    context_window={context_window}  max_target_tokens={max_target_tokens}")
+        print(f"    math: context={context_window_math}  max_new_tokens={max_new_tokens_math}")
         model, tokenizer = get_model(name, device=device)
         ckpt_path = checkpoint_path if name in ("hybrid", "selective", "mamba_selective", "gpt2_mamba_selective") else ""
         if ckpt_path and os.path.isfile(ckpt_path):
@@ -167,9 +176,10 @@ def main():
         )
         print(f"  perplexity  (literature): {perplexity:.2f}")
 
+        _maybe_empty_cuda_cache(device)
         em = compute_exact_match(
             model, tokenizer, math_path, device,
-            context_window, max_new_tokens, max_math_samples,
+            context_window_math, max_new_tokens_math, max_math_samples,
         )
         print(f"  exact match (math):       {em:.4f}")
 
@@ -178,7 +188,8 @@ def main():
             "exact_match_math": round(em, 4),
             "context_window": context_window,
             "max_target_tokens": max_target_tokens,
-            "max_new_tokens": max_new_tokens,
+            "context_window_math": context_window_math,
+            "max_new_tokens_math": max_new_tokens_math,
             "lit_samples": max_lit_samples,
             "math_samples": max_math_samples,
         }

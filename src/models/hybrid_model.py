@@ -420,9 +420,11 @@ class HybridMambaTransformer(nn.Module):
 
         loss = None
         if labels is not None:
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_labels = labels[:, 1:].contiguous()
             loss = F.cross_entropy(
-                logits.view(-1, self.vocab_size),
-                labels.view(-1),
+                shift_logits.view(-1, self.vocab_size),
+                shift_labels.view(-1),
                 ignore_index=-100,
             )
 
@@ -524,9 +526,11 @@ class Gpt2MambaSelectiveTransformer(nn.Module):
         logits = self.lm_head(x)
         loss = None
         if labels is not None:
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_labels = labels[:, 1:].contiguous()
             loss = F.cross_entropy(
-                logits.view(-1, self.vocab_size),
-                labels.view(-1),
+                shift_logits.view(-1, self.vocab_size),
+                shift_labels.view(-1),
                 ignore_index=-100,
             )
         return type("Output", (), {"loss": loss, "logits": logits})()
@@ -643,9 +647,11 @@ class SelectiveContextTransformer(nn.Module):
 
         loss = None
         if labels is not None:
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_labels = labels[:, 1:].contiguous()
             loss = F.cross_entropy(
-                logits.view(-1, self.vocab_size),
-                labels.view(-1),
+                shift_logits.view(-1, self.vocab_size),
+                shift_labels.view(-1),
                 ignore_index=-100,
             )
 
@@ -716,9 +722,11 @@ class MambaSelectiveContextTransformer(nn.Module):
 
         loss = None
         if labels is not None:
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_labels = labels[:, 1:].contiguous()
             loss = F.cross_entropy(
-                logits.view(-1, self.vocab_size),
-                labels.view(-1),
+                shift_logits.view(-1, self.vocab_size),
+                shift_labels.view(-1),
                 ignore_index=-100,
             )
 
