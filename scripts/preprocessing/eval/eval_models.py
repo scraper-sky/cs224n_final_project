@@ -20,7 +20,7 @@ def compute_perplexity(model, tokenizer, chunks_path, device, context_window, ma
 
     with open(chunks_path, "r", encoding="utf-8") as f:
         lines = [l.strip() for l in f if l.strip()]
-    if max_samples:
+    if max_samples is not None:
         lines = lines[:max_samples]
 
     with torch.inference_mode():
@@ -89,7 +89,7 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
 
     with open(math_path, "r", encoding="utf-8") as f:
         lines = [l.strip() for l in f if l.strip()]
-    if max_samples:
+    if max_samples is not None:
         lines = lines[:max_samples]
 
     debug = os.environ.get("EVAL_DEBUG", "0").lower() in ("1", "true", "yes")
@@ -166,7 +166,7 @@ def main():
         print(f"    context_window={context_window}  max_target_tokens={max_target_tokens}")
         print(f"    math: context={context_window_math}  max_new_tokens={max_new_tokens_math}")
         model, tokenizer = get_model(name, device=device)
-        ckpt_path = checkpoint_path if name in ("hybrid", "selective", "mamba_selective", "gpt2_mamba_selective") else ""
+        ckpt_path = checkpoint_path if name in ("hybrid", "selective", "mamba_selective", "gpt2_mamba_selective", "gpt2", "mamba") else ""
         if ckpt_path and os.path.isfile(ckpt_path):
             ckpt = torch.load(ckpt_path, map_location=device)
             model.load_state_dict(ckpt["model_state_dict"], strict=True)
