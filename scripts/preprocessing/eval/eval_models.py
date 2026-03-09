@@ -152,6 +152,7 @@ def main():
     max_new_tokens_math = int(os.environ.get("MAX_NEW_TOKENS_MATH", "128"))
     max_lit_samples = int(os.environ.get("MAX_LIT_SAMPLES", "50"))
     max_math_samples = int(os.environ.get("MAX_MATH_SAMPLES", "100"))
+    max_secondary_samples = int(os.environ.get("MAX_SECONDARY_SAMPLES", "100"))
 
     if os.path.exists(results_path):
         with open(results_path, "r", encoding="utf-8") as f:
@@ -189,7 +190,7 @@ def main():
         if os.path.isfile(secondary_math_path):
             em_secondary = compute_exact_match(
                 model, tokenizer, secondary_math_path, device,
-                context_window_math, max_new_tokens_math, max_math_samples,
+                context_window_math, max_new_tokens_math, max_secondary_samples,
             )
             print(f"  exact match (secondary): {em_secondary:.4f}")
 
@@ -203,6 +204,7 @@ def main():
             "max_new_tokens_math": max_new_tokens_math,
             "lit_samples": max_lit_samples,
             "math_samples": max_math_samples,
+            "secondary_samples": max_secondary_samples,
         }
 
     with open(results_path, "w", encoding="utf-8") as f:
