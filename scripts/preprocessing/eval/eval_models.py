@@ -1,20 +1,3 @@
-# evaluate models on two tasks:
-#   1. perplexity on literature target tokens given context (gutenberg_7000_1192.jsonl)
-#   2. exact match on math final answers via greedy generation (olympiad_preprocessed.jsonl)
-# run from project root: python scripts/preprocessing/eval/eval_models.py
-# configure via environment variables (see main() for defaults)
-#
-# Context-window note:
-#   CONTEXT_WINDOW  – total tokens fed to the model (context + target).
-#                     Default 1024, which is the hard positional-embedding limit for GPT-2.
-#                     Mamba has no such limit; raise this (e.g. 4096) when evaluating Mamba alone
-#                     to study long-context behaviour.
-#   MAX_TARGET_TOKENS – how many target tokens are scored for perplexity.
-#                     The remainder of the context window is filled with context tokens
-#                     (trimmed from the left).  Default 512.
-#
-# Example: CONTEXT_WINDOW=4096 MAX_TARGET_TOKENS=512 EVAL_MODELS=mamba python ...
-
 import json
 import math
 import os
@@ -31,16 +14,6 @@ if PROJECT_ROOT not in sys.path:
 
 
 def compute_perplexity(model, tokenizer, chunks_path, device, context_window, max_target_tokens, max_samples):
-    """Compute mean perplexity on target tokens given preceding context.
-
-    Budget split within the context_window:
-      1. Target tokens are capped to max_target_tokens (scored tokens).
-      2. The remaining budget (context_window - len(target)) is filled with
-         context tokens trimmed from the left — i.e. the most recent context.
-
-    This ensures that both the context and the scored tokens always fit within
-    the model's context window, regardless of what is stored in the JSONL file.
-    """
     model.eval()
     total_loss = 0.0
     total_tokens = 0
@@ -103,11 +76,6 @@ def _greedy_decode(model, input_ids, max_new_tokens, eos_token_id):
 
 
 def compute_exact_match(model, tokenizer, math_path, device, context_window, max_new_tokens, max_samples):
-    """Compute exact match: generate greedily from question prompt, check if gold answer appears in output.
-
-    context_window caps the question length fed to the model (via tokenizer truncation),
-    ensuring GPT-2's 1024-token positional-embedding limit is respected.
-    """
     model.eval()
     correct = 0
     total = 0
@@ -139,7 +107,6 @@ def compute_exact_match(model, tokenizer, math_path, device, context_window, max
                     pad_token_id=tokenizer.eos_token_id,
                 )
             else:
-                # fallback for plain nn.Module models (e.g. HybridMambaTransformer)
                 gen_ids = _greedy_decode(model, input_ids, max_new_tokens, tokenizer.eos_token_id)
 
             new_ids = gen_ids[0, input_ids.shape[1]:]
@@ -168,19 +135,13 @@ def main():
     device = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
     results_path = os.environ.get("RESULTS_JSON") or os.path.join(_project_root, "eval_results.json")
 
-    # Total tokens fed to the model (context + target). Hard cap for GPT-2 is 1024.
-    # Increase for Mamba to study long-context behaviour (e.g. CONTEXT_WINDOW=4096).
     context_window = int(os.environ.get("CONTEXT_WINDOW", "1024"))
-
-    # Tokens scored for perplexity; the rest of the context_window is context.
-    # e.g. with context_window=1024 and max_target_tokens=512: 512 context + 512 target.
     max_target_tokens = int(os.environ.get("MAX_TARGET_TOKENS", "512"))
 
     max_new_tokens = int(os.environ.get("MAX_NEW_TOKENS", "256"))
     max_lit_samples = int(os.environ.get("MAX_LIT_SAMPLES", "50"))
     max_math_samples = int(os.environ.get("MAX_MATH_SAMPLES", "100"))
 
-    # load existing results so repeated runs append rather than overwrite
     if os.path.exists(results_path):
         with open(results_path, "r", encoding="utf-8") as f:
             all_results = json.load(f)
@@ -192,7 +153,7 @@ def main():
         print(f"\n=== {name} ===")
         print(f"    context_window={context_window}  max_target_tokens={max_target_tokens}")
         model, tokenizer = get_model(name, device=device)
-        ckpt_path = checkpoint_path if name in ("hybrid", "selective", "mamba_selective") else ""
+        ckpt_path = checkpoint_path if name in ("hybrid", "selective", "mamba_selective", "gpt2_mamba_selective") else ""
         if ckpt_path and os.path.isfile(ckpt_path):
             ckpt = torch.load(ckpt_path, map_location=device)
             model.load_state_dict(ckpt["model_state_dict"], strict=True)
@@ -212,7 +173,6 @@ def main():
         )
         print(f"  exact match (math):       {em:.4f}")
 
-        # record config alongside metrics so results are self-documenting
         all_results[name] = {
             "perplexity_literature": round(perplexity, 4),
             "exact_match_math": round(em, 4),

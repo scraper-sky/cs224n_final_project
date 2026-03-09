@@ -44,4 +44,7 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         config["lr"] = 3e-5
         if config["warmup_steps"] < 50:
             config["warmup_steps"] = 50
+    if config.get("model_name") == "gpt2_mamba_selective":
+        config["lr"] = 2e-5
+        config["literature_ratio"] = 0.35
     return config

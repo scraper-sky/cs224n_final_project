@@ -85,6 +85,8 @@ class SelectiveContextAttention(nn.Module):
 
         attn_local = F.softmax(attn_local, dim=-1)
         attn_global = F.softmax(attn_global, dim=-1)
+        attn_local = torch.nan_to_num(attn_local, nan=0.0, posinf=0.0, neginf=0.0)
+        attn_global = torch.nan_to_num(attn_global, nan=0.0, posinf=0.0, neginf=0.0)
 
         attn_combined = w_local * attn_local + w_global * attn_global
         attn_combined = self.attn_dropout(attn_combined)
@@ -95,22 +97,14 @@ class SelectiveContextAttention(nn.Module):
         return out
 
 
-_MAMBA_LAYERS = None
-
-def _get_mamba_layers():
-    global _MAMBA_LAYERS
-    if _MAMBA_LAYERS is None:
-        from transformers import MambaModel
-        print("Loading pretrained Mamba layers...")
-        full_model = MambaModel.from_pretrained("state-spaces/mamba-130m-hf")
-        _MAMBA_LAYERS = [layer for layer in full_model.layers[:12]]
-        for layer in _MAMBA_LAYERS:
-            for param in layer.parameters():
-                param.requires_grad = False
-        del full_model
-        torch.cuda.empty_cache()
-        print("Mamba layers loaded and frozen")
-    return _MAMBA_LAYERS
+def _make_mamba_block(hidden_size: int, layer_idx: int):
+    from transformers import MambaConfig
+    from transformers.models.mamba.modeling_mamba import MambaBlock
+    cfg = MambaConfig.from_pretrained("state-spaces/mamba-130m-hf")
+    if cfg.hidden_size != hidden_size:
+        cfg.hidden_size = hidden_size
+        cfg.intermediate_size = hidden_size * 4
+    return MambaBlock(cfg, layer_idx=layer_idx)
 
 
 class MambaSelectiveContextAttention(nn.Module):
@@ -134,9 +128,7 @@ class MambaSelectiveContextAttention(nn.Module):
         self.attn_dropout = nn.Dropout(dropout)
         self.resid_dropout = nn.Dropout(dropout)
 
-        mamba_layers = _get_mamba_layers()
-        self.mamba_selector = mamba_layers[layer_idx]
-
+        self.mamba_selector = _make_mamba_block(hidden_size, layer_idx)
         self.mamba_input_ln = nn.LayerNorm(hidden_size)
         self.selectivity_proj = nn.Linear(hidden_size, 1)
 
@@ -171,9 +163,9 @@ class MambaSelectiveContextAttention(nn.Module):
         )
         attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), float("-inf"))
 
-        with torch.no_grad():
-            x_for_mamba = self.mamba_input_ln(x)
-            mamba_features = self.mamba_selector(x_for_mamba)
+        x_for_mamba = self.mamba_input_ln(x)
+        mamba_features = self.mamba_selector(x_for_mamba)
+        mamba_features = torch.clamp(mamba_features, -20.0, 20.0)
 
         selectivity_logits = self.selectivity_proj(mamba_features)
         selectivity_scores = torch.sigmoid(selectivity_logits)
@@ -200,6 +192,8 @@ class MambaSelectiveContextAttention(nn.Module):
 
         attn_local = F.softmax(attn_local, dim=-1)
         attn_global = F.softmax(attn_global, dim=-1)
+        attn_local = torch.nan_to_num(attn_local, nan=0.0, posinf=0.0, neginf=0.0)
+        attn_global = torch.nan_to_num(attn_global, nan=0.0, posinf=0.0, neginf=0.0)
 
         attn_combined = w_local * attn_local + w_global * attn_global
         attn_combined = self.attn_dropout(attn_combined)
@@ -286,6 +280,70 @@ class MambaSelectiveContextBlock(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         x = x + self.attn(self.ln_1(x), attention_mask=attention_mask)
+        x = x + self.mlp(self.ln_2(x))
+        return x
+
+
+class Gpt2MambaSelectiveBlock(nn.Module):
+    def __init__(self, hidden_size: int = 768, num_heads: int = 12, dropout: float = 0.0, layer_idx: int = 0):
+        super().__init__()
+        self.ln_1 = nn.LayerNorm(hidden_size)
+        self.ln_2 = nn.LayerNorm(hidden_size)
+        self.c_attn = nn.Linear(hidden_size, 3 * hidden_size)
+        self.c_proj = nn.Linear(hidden_size, hidden_size)
+        self.attn_dropout = nn.Dropout(dropout)
+        self.resid_dropout = nn.Dropout(dropout)
+        self.head_dim = hidden_size // num_heads
+        self.scale = self.head_dim**-0.5
+        self.num_heads = num_heads
+
+        self.mamba = _make_mamba_block(hidden_size, layer_idx)
+        self.mamba_ln = nn.LayerNorm(hidden_size)
+        self.selectivity_proj = nn.Linear(hidden_size, 1)
+        nn.init.normal_(self.selectivity_proj.weight, mean=0.0, std=0.01)
+        nn.init.zeros_(self.selectivity_proj.bias)
+
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_size, 4 * hidden_size),
+            nn.GELU(),
+            nn.Linear(4 * hidden_size, hidden_size),
+            nn.Dropout(dropout),
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        residual = x
+        x_norm = self.ln_1(x)
+        B, T, C = x_norm.shape
+        qkv = self.c_attn(x_norm)
+        q, k, v = qkv.split(C, dim=-1)
+        q = q.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        causal_mask = torch.triu(torch.ones(T, T, device=x.device, dtype=torch.bool), diagonal=1)
+        attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), float("-inf"))
+        if attention_mask is not None:
+            attn_scores = attn_scores + attention_mask
+
+        mamba_out = self.mamba(self.mamba_ln(x))
+        mamba_out = torch.clamp(mamba_out, -20.0, 20.0)
+        selectivity = torch.sigmoid(self.selectivity_proj(mamba_out))
+        selectivity = selectivity.transpose(1, 2).unsqueeze(2)
+        attn_scores = attn_scores * (0.3 + 0.7 * selectivity)
+
+        attn_probs = F.softmax(attn_scores, dim=-1)
+        attn_probs = torch.nan_to_num(attn_probs, nan=0.0, posinf=0.0, neginf=0.0)
+        attn_probs = self.attn_dropout(attn_probs)
+        out = torch.matmul(attn_probs, v)
+        out = out.transpose(1, 2).contiguous().view(B, T, C)
+        out = self.resid_dropout(self.c_proj(out))
+        x = residual + out
+
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -402,6 +460,84 @@ def freeze_gpt2_components(model: HybridMambaTransformer) -> None:
         param.requires_grad = False
     for param in model.lm_head.parameters():
         param.requires_grad = False
+
+
+class Gpt2MambaSelectiveTransformer(nn.Module):
+    def __init__(self, vocab_size: int, hidden_size: int = 768, num_heads: int = 12, dropout: float = 0.0):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.hidden_size = hidden_size
+        self.embed = nn.Embedding(vocab_size, hidden_size)
+        self.pos_embed = nn.Embedding(MAX_POSITION_EMBEDDINGS, hidden_size)
+        self.layers = nn.ModuleList([
+            Gpt2MambaSelectiveBlock(hidden_size=hidden_size, num_heads=num_heads, dropout=dropout, layer_idx=i)
+            for i in range(12)
+        ])
+        self.ln_f = nn.LayerNorm(hidden_size)
+        self.lm_head = nn.Linear(hidden_size, vocab_size, bias=False)
+
+    def _make_attention_mask(
+        self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor], device: torch.device
+    ):
+        batch, seq_len = input_ids.shape
+        causal = torch.triu(torch.ones(seq_len, seq_len, device=device, dtype=torch.float), diagonal=1)
+        causal = causal.masked_fill(causal.bool(), float("-inf"))
+        if attention_mask is not None:
+            padding = torch.zeros(batch, 1, 1, seq_len, device=device)
+            padding = padding.masked_fill(attention_mask[:, None, None, :] == 0, float("-inf"))
+            return causal[None, None, :, :] + padding
+        return causal[None, None, :, :].expand(batch, 1, seq_len, seq_len)
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        **kwargs: Any,
+    ):
+        seq_len = input_ids.size(1)
+        device = input_ids.device
+        position_ids = torch.arange(seq_len, dtype=torch.long, device=device).unsqueeze(0)
+        x = self.embed(input_ids) + self.pos_embed(position_ids)
+        attn_mask = self._make_attention_mask(input_ids, attention_mask, device)
+
+        for layer in self.layers:
+            x = layer(x, attention_mask=attn_mask)
+        x = self.ln_f(x)
+        logits = self.lm_head(x)
+        loss = None
+        if labels is not None:
+            loss = F.cross_entropy(
+                logits.view(-1, self.vocab_size),
+                labels.view(-1),
+                ignore_index=-100,
+            )
+        return type("Output", (), {"loss": loss, "logits": logits})()
+
+
+def _copy_gpt2_to_mamba_selective(model: Gpt2MambaSelectiveTransformer) -> None:
+    from transformers import GPT2LMHeadModel
+    gpt2 = GPT2LMHeadModel.from_pretrained("gpt2")
+    model.embed.weight.data.copy_(gpt2.transformer.wte.weight)
+    model.pos_embed.weight.data.copy_(gpt2.transformer.wpe.weight)
+    model.ln_f.weight.data.copy_(gpt2.transformer.ln_f.weight)
+    model.ln_f.bias.data.copy_(gpt2.transformer.ln_f.bias)
+    model.lm_head.weight.data.copy_(gpt2.lm_head.weight)
+    for i, layer in enumerate(model.layers):
+        src = gpt2.transformer.h[i]
+        layer.ln_1.weight.data.copy_(src.ln_1.weight)
+        layer.ln_1.bias.data.copy_(src.ln_1.bias)
+        layer.c_attn.weight.data.copy_(src.attn.c_attn.weight)
+        layer.c_attn.bias.data.copy_(src.attn.c_attn.bias)
+        layer.c_proj.weight.data.copy_(src.attn.c_proj.weight)
+        layer.c_proj.bias.data.copy_(src.attn.c_proj.bias)
+        layer.ln_2.weight.data.copy_(src.ln_2.weight)
+        layer.ln_2.bias.data.copy_(src.ln_2.bias)
+        layer.mlp[0].weight.data.copy_(src.mlp.c_fc.weight)
+        layer.mlp[0].bias.data.copy_(src.mlp.c_fc.bias)
+        layer.mlp[2].weight.data.copy_(src.mlp.c_proj.weight)
+        layer.mlp[2].bias.data.copy_(src.mlp.c_proj.bias)
+    del gpt2
 
 
 def load_hybrid(device: Optional[str] = None, **kwargs: Any) -> Tuple[Any, "PreTrainedTokenizerBase"]:
@@ -642,3 +778,24 @@ def _init_mamba_selective_from_gpt2(model: MambaSelectiveContextTransformer) -> 
     model.ln_f.bias.data.copy_(gpt2.transformer.ln_f.bias)
     model.lm_head.weight.data.copy_(gpt2.lm_head.weight)
     del gpt2
+
+
+def load_gpt2_mamba_selective(device: Optional[str] = None, **kwargs: Any) -> Tuple[Any, "PreTrainedTokenizerBase"]:
+    tokenizer = get_tokenizer("gpt2")
+    vocab_size = tokenizer.vocab_size if hasattr(tokenizer, "vocab_size") else len(tokenizer)
+    hidden_size = kwargs.pop("hidden_size", 768)
+    dropout = kwargs.pop("dropout", 0.0)
+    use_pretrained = kwargs.pop("pretrained", True)
+    kwargs.pop("copy_mamba_weights", None)
+    kwargs.pop("freeze_gpt2", None)
+
+    model = Gpt2MambaSelectiveTransformer(
+        vocab_size=vocab_size,
+        hidden_size=hidden_size,
+        dropout=dropout,
+    )
+    if use_pretrained:
+        _copy_gpt2_to_mamba_selective(model)
+    if device is not None:
+        model = model.to(device)
+    return model, tokenizer

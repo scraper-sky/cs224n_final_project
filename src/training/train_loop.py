@@ -110,6 +110,8 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
 
     os.makedirs(cfg["checkpoint_dir"], exist_ok=True)
     step = 0
+    consecutive_nan = 0
+    max_consecutive_nan = 20
     model.train()
 
     while step < cfg["max_steps"]:
@@ -128,8 +130,17 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         loss = out.loss
 
         if torch.isnan(loss) or torch.isinf(loss):
-            print(f"WARNING: NaN loss at step {step}, skipping")
+            consecutive_nan += 1
+            step += 1
+            if consecutive_nan <= 5 or consecutive_nan % 10 == 0:
+                print(f"WARNING: NaN loss at step {step}, skipping")
+            if consecutive_nan >= max_consecutive_nan:
+                raise RuntimeError(
+                    f"NaN loss {consecutive_nan} steps in a row. Check model init and data."
+                )
             continue
+
+        consecutive_nan = 0
 
         gate_reg = cfg.get("gate_reg", 0.0)
         if gate_reg > 0 and hasattr(model, "mamba_gate"):
@@ -144,9 +155,18 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         )
 
         if has_nan_grad:
-            print(f"WARNING: NaN gradients at step {step}, skipping")
+            consecutive_nan += 1
+            step += 1
             optimizer.zero_grad()
+            if consecutive_nan <= 5 or consecutive_nan % 10 == 0:
+                print(f"WARNING: NaN gradients at step {step}, skipping")
+            if consecutive_nan >= max_consecutive_nan:
+                raise RuntimeError(
+                    f"NaN gradients {consecutive_nan} steps in a row. Check model init and data."
+                )
             continue
+
+        consecutive_nan = 0
 
         if max_grad_norm > 0:
             grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
