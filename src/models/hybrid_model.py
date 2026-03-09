@@ -333,7 +333,7 @@ class Gpt2MambaSelectiveBlock(nn.Module):
         mamba_out = self.mamba(self.mamba_ln(x))
         mamba_out = torch.clamp(mamba_out, -20.0, 20.0).detach()
         selectivity = torch.sigmoid(self.selectivity_proj(mamba_out))
-        selectivity = selectivity.transpose(1, 2).unsqueeze(2)
+        selectivity = selectivity.unsqueeze(1)
         v_mod = v * (0.3 + 0.7 * selectivity)
 
         attn_probs = F.softmax(attn_scores, dim=-1)
