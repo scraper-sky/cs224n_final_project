@@ -462,11 +462,23 @@ def freeze_gpt2_components(model: HybridMambaTransformer) -> None:
         param.requires_grad = False
 
 
+def _layer_forward(layer: nn.Module, x: torch.Tensor, attn_mask: Optional[torch.Tensor]) -> torch.Tensor:
+    return layer(x, attention_mask=attn_mask)
+
+
 class Gpt2MambaSelectiveTransformer(nn.Module):
-    def __init__(self, vocab_size: int, hidden_size: int = 768, num_heads: int = 12, dropout: float = 0.0):
+    def __init__(
+        self,
+        vocab_size: int,
+        hidden_size: int = 768,
+        num_heads: int = 12,
+        dropout: float = 0.0,
+        use_checkpointing: bool = False,
+    ):
         super().__init__()
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
+        self.use_checkpointing = use_checkpointing
         self.embed = nn.Embedding(vocab_size, hidden_size)
         self.pos_embed = nn.Embedding(MAX_POSITION_EMBEDDINGS, hidden_size)
         self.layers = nn.ModuleList([
@@ -502,7 +514,12 @@ class Gpt2MambaSelectiveTransformer(nn.Module):
         attn_mask = self._make_attention_mask(input_ids, attention_mask, device)
 
         for layer in self.layers:
-            x = layer(x, attention_mask=attn_mask)
+            if self.use_checkpointing and self.training:
+                x = torch.utils.checkpoint.checkpoint(
+                    _layer_forward, layer, x, attn_mask, use_reentrant=False
+                )
+            else:
+                x = layer(x, attention_mask=attn_mask)
         x = self.ln_f(x)
         logits = self.lm_head(x)
         loss = None
@@ -811,6 +828,7 @@ def load_gpt2_mamba_selective(device: Optional[str] = None, **kwargs: Any) -> Tu
     vocab_size = tokenizer.vocab_size if hasattr(tokenizer, "vocab_size") else len(tokenizer)
     hidden_size = kwargs.pop("hidden_size", 768)
     dropout = kwargs.pop("dropout", 0.0)
+    use_checkpointing = kwargs.pop("use_checkpointing", False)
     use_pretrained = kwargs.pop("pretrained", True)
     do_freeze_gpt2 = kwargs.pop("freeze_gpt2", False)
     kwargs.pop("copy_mamba_weights", None)
@@ -819,6 +837,7 @@ def load_gpt2_mamba_selective(device: Optional[str] = None, **kwargs: Any) -> Tu
         vocab_size=vocab_size,
         hidden_size=hidden_size,
         dropout=dropout,
+        use_checkpointing=use_checkpointing,
     )
     if use_pretrained:
         _copy_gpt2_to_mamba_selective(model)

@@ -64,6 +64,8 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
     model_kwargs: dict[str, Any] = {}
     if cfg.get("freeze_gpt2") and cfg["model_name"] in ("hybrid", "gpt2_mamba_selective"):
         model_kwargs["freeze_gpt2"] = True
+    if cfg.get("use_checkpointing"):
+        model_kwargs["use_checkpointing"] = True
 
     model, tokenizer = get_model(cfg["model_name"], device=cfg["device"], **model_kwargs)
     if tokenizer.pad_token is None:

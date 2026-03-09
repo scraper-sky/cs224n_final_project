@@ -31,6 +31,8 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         "gate_reg": float(os.environ.get("GATE_REG", "0.0")),
         "warmup_steps": int(os.environ.get("WARMUP_STEPS", "100")),
         "max_grad_norm": float(os.environ.get("MAX_GRAD_NORM", "1.0")),
+        "use_checkpointing": os.environ.get("USE_CHECKPOINT", "0").lower() in ("1", "true", "yes"),
+        "literature_focused": os.environ.get("LITERATURE_FOCUSED", "0").lower() in ("1", "true", "yes"),
     }
     if overrides:
         config.update(overrides)
@@ -47,4 +49,8 @@ def get_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     if config.get("model_name") == "gpt2_mamba_selective":
         config["lr"] = 2e-5
         config["literature_ratio"] = 0.65 if config.get("freeze_gpt2") else 0.35
+        if config.get("literature_focused"):
+            config["literature_ratio"] = 0.8
+            config["use_checkpointing"] = True
+            config["save_every"] = min(config.get("save_every", 500), 100)
     return config
