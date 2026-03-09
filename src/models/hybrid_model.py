@@ -784,14 +784,36 @@ def _init_mamba_selective_from_gpt2(model: MambaSelectiveContextTransformer) -> 
     del gpt2
 
 
+def freeze_gpt2_in_mamba_selective(model: Gpt2MambaSelectiveTransformer) -> None:
+    for param in model.embed.parameters():
+        param.requires_grad = False
+    for param in model.pos_embed.parameters():
+        param.requires_grad = False
+    for param in model.ln_f.parameters():
+        param.requires_grad = False
+    for param in model.lm_head.parameters():
+        param.requires_grad = False
+    for layer in model.layers:
+        for param in layer.ln_1.parameters():
+            param.requires_grad = False
+        for param in layer.c_attn.parameters():
+            param.requires_grad = False
+        for param in layer.c_proj.parameters():
+            param.requires_grad = False
+        for param in layer.ln_2.parameters():
+            param.requires_grad = False
+        for param in layer.mlp.parameters():
+            param.requires_grad = False
+
+
 def load_gpt2_mamba_selective(device: Optional[str] = None, **kwargs: Any) -> Tuple[Any, "PreTrainedTokenizerBase"]:
     tokenizer = get_tokenizer("gpt2")
     vocab_size = tokenizer.vocab_size if hasattr(tokenizer, "vocab_size") else len(tokenizer)
     hidden_size = kwargs.pop("hidden_size", 768)
     dropout = kwargs.pop("dropout", 0.0)
     use_pretrained = kwargs.pop("pretrained", True)
+    do_freeze_gpt2 = kwargs.pop("freeze_gpt2", False)
     kwargs.pop("copy_mamba_weights", None)
-    kwargs.pop("freeze_gpt2", None)
 
     model = Gpt2MambaSelectiveTransformer(
         vocab_size=vocab_size,
@@ -800,6 +822,8 @@ def load_gpt2_mamba_selective(device: Optional[str] = None, **kwargs: Any) -> Tu
     )
     if use_pretrained:
         _copy_gpt2_to_mamba_selective(model)
+    if do_freeze_gpt2:
+        freeze_gpt2_in_mamba_selective(model)
     if device is not None:
         model = model.to(device)
     return model, tokenizer

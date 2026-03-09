@@ -62,7 +62,7 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
         torch.cuda.manual_seed(cfg["seed"])
 
     model_kwargs: dict[str, Any] = {}
-    if cfg.get("freeze_gpt2") and cfg["model_name"] == "hybrid":
+    if cfg.get("freeze_gpt2") and cfg["model_name"] in ("hybrid", "gpt2_mamba_selective"):
         model_kwargs["freeze_gpt2"] = True
 
     model, tokenizer = get_model(cfg["model_name"], device=cfg["device"], **model_kwargs)
