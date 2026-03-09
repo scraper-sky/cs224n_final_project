@@ -149,24 +149,9 @@ def run_train(config: Optional[dict[str, Any]] = None, config_overrides: Optiona
 
         loss.backward()
 
-        has_nan_grad = any(
-            param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any())
-            for param in trainable_params
-        )
-
-        if has_nan_grad:
-            consecutive_nan += 1
-            step += 1
-            optimizer.zero_grad()
-            if consecutive_nan <= 5 or consecutive_nan % 10 == 0:
-                print(f"WARNING: NaN gradients at step {step}, skipping")
-            if consecutive_nan >= max_consecutive_nan:
-                raise RuntimeError(
-                    f"NaN gradients {consecutive_nan} steps in a row. Check model init and data."
-                )
-            continue
-
-        consecutive_nan = 0
+        for param in trainable_params:
+            if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
+                param.grad.zero_()
 
         if max_grad_norm > 0:
             grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)

@@ -334,12 +334,12 @@ class Gpt2MambaSelectiveBlock(nn.Module):
         mamba_out = torch.clamp(mamba_out, -20.0, 20.0).detach()
         selectivity = torch.sigmoid(self.selectivity_proj(mamba_out))
         selectivity = selectivity.transpose(1, 2).unsqueeze(2)
-        attn_scores = attn_scores * (0.3 + 0.7 * selectivity)
+        v_mod = v * (0.3 + 0.7 * selectivity)
 
         attn_probs = F.softmax(attn_scores, dim=-1)
         attn_probs = torch.nan_to_num(attn_probs, nan=0.0, posinf=0.0, neginf=0.0)
         attn_probs = self.attn_dropout(attn_probs)
-        out = torch.matmul(attn_probs, v)
+        out = torch.matmul(attn_probs, v_mod)
         out = out.transpose(1, 2).contiguous().view(B, T, C)
         out = self.resid_dropout(self.c_proj(out))
         x = residual + out
