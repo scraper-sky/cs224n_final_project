@@ -76,6 +76,8 @@ def _greedy_decode(model, input_ids, max_new_tokens, eos_token_id):
 
 
 def _maybe_empty_cuda_cache(device):
+    if isinstance(device, str):
+        device = torch.device(device)
     if device.type == "cuda":
         torch.cuda.empty_cache()
 
