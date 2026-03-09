@@ -527,15 +527,19 @@ def _copy_gpt2_to_mamba_selective(model: Gpt2MambaSelectiveTransformer) -> None:
         src = gpt2.transformer.h[i]
         layer.ln_1.weight.data.copy_(src.ln_1.weight)
         layer.ln_1.bias.data.copy_(src.ln_1.bias)
-        layer.c_attn.weight.data.copy_(src.attn.c_attn.weight)
+        w = src.attn.c_attn.weight
+        layer.c_attn.weight.data.copy_(w.T if w.shape != layer.c_attn.weight.shape else w)
         layer.c_attn.bias.data.copy_(src.attn.c_attn.bias)
-        layer.c_proj.weight.data.copy_(src.attn.c_proj.weight)
+        w = src.attn.c_proj.weight
+        layer.c_proj.weight.data.copy_(w.T if w.shape != layer.c_proj.weight.shape else w)
         layer.c_proj.bias.data.copy_(src.attn.c_proj.bias)
         layer.ln_2.weight.data.copy_(src.ln_2.weight)
         layer.ln_2.bias.data.copy_(src.ln_2.bias)
-        layer.mlp[0].weight.data.copy_(src.mlp.c_fc.weight)
+        w = src.mlp.c_fc.weight
+        layer.mlp[0].weight.data.copy_(w.T if w.shape != layer.mlp[0].weight.shape else w)
         layer.mlp[0].bias.data.copy_(src.mlp.c_fc.bias)
-        layer.mlp[2].weight.data.copy_(src.mlp.c_proj.weight)
+        w = src.mlp.c_proj.weight
+        layer.mlp[2].weight.data.copy_(w.T if w.shape != layer.mlp[2].weight.shape else w)
         layer.mlp[2].bias.data.copy_(src.mlp.c_proj.bias)
     del gpt2
 
