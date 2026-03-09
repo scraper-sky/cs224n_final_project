@@ -331,7 +331,7 @@ class Gpt2MambaSelectiveBlock(nn.Module):
             attn_scores = attn_scores + attention_mask
 
         mamba_out = self.mamba(self.mamba_ln(x))
-        mamba_out = torch.clamp(mamba_out, -20.0, 20.0)
+        mamba_out = torch.clamp(mamba_out, -20.0, 20.0).detach()
         selectivity = torch.sigmoid(self.selectivity_proj(mamba_out))
         selectivity = selectivity.transpose(1, 2).unsqueeze(2)
         attn_scores = attn_scores * (0.3 + 0.7 * selectivity)
