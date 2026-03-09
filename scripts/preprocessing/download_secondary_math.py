@@ -7,10 +7,13 @@ def _project_root() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
-def _load_hf_dataset(hf_id: str, split: str) -> List[Dict[str, Any]]:
+def _load_hf_dataset(hf_id: str, split: str, config: str | None = None) -> List[Dict[str, Any]]:
     from datasets import load_dataset
 
-    ds = load_dataset(hf_id, split=split)
+    if config:
+        ds = load_dataset(hf_id, config, split=split)
+    else:
+        ds = load_dataset(hf_id, split=split)
     return list(ds)
 
 
@@ -23,7 +26,8 @@ def main() -> None:
         {
             "name": "gsm8k",
             "hf_id": os.environ.get("GSM8K_DATASET", "openai/gsm8k"),
-            "split": os.environ.get("GSM8K_SPLIT", "main"),
+            "config": os.environ.get("GSM8K_CONFIG", "main"),
+            "split": os.environ.get("GSM8K_SPLIT", "test"),
             "question_key": "question",
             "solution_key": "answer",  # contains rationale + final answer
             "final_answer_key": None,  # we will extract from solution in preprocessing
@@ -33,6 +37,7 @@ def main() -> None:
         {
             "name": "math500",
             "hf_id": os.environ.get("MATH500_DATASET", ""),
+            "config": os.environ.get("MATH500_CONFIG", ""),
             "split": os.environ.get("MATH500_SPLIT", "test"),
             "question_key": os.environ.get("MATH500_QUESTION_KEY", "problem"),
             "solution_key": os.environ.get("MATH500_SOLUTION_KEY", "solution"),
@@ -42,6 +47,7 @@ def main() -> None:
         {
             "name": "aime24",
             "hf_id": os.environ.get("AIME24_DATASET", ""),
+            "config": os.environ.get("AIME24_CONFIG", ""),
             "split": os.environ.get("AIME24_SPLIT", "test"),
             "question_key": os.environ.get("AIME24_QUESTION_KEY", "problem"),
             "solution_key": os.environ.get("AIME24_SOLUTION_KEY", "solution"),
@@ -51,6 +57,7 @@ def main() -> None:
         {
             "name": "aime25",
             "hf_id": os.environ.get("AIME25_DATASET", ""),
+            "config": os.environ.get("AIME25_CONFIG", ""),
             "split": os.environ.get("AIME25_SPLIT", "test"),
             "question_key": os.environ.get("AIME25_QUESTION_KEY", "problem"),
             "solution_key": os.environ.get("AIME25_SOLUTION_KEY", "solution"),
@@ -60,6 +67,7 @@ def main() -> None:
         {
             "name": "aime26",
             "hf_id": os.environ.get("AIME26_DATASET", ""),
+            "config": os.environ.get("AIME26_CONFIG", ""),
             "split": os.environ.get("AIME26_SPLIT", "test"),
             "question_key": os.environ.get("AIME26_QUESTION_KEY", "problem"),
             "solution_key": os.environ.get("AIME26_SOLUTION_KEY", "solution"),
@@ -69,6 +77,7 @@ def main() -> None:
         {
             "name": "amc23",
             "hf_id": os.environ.get("AMC23_DATASET", ""),
+            "config": os.environ.get("AMC23_CONFIG", ""),
             "split": os.environ.get("AMC23_SPLIT", "test"),
             "question_key": os.environ.get("AMC23_QUESTION_KEY", "problem"),
             "solution_key": os.environ.get("AMC23_SOLUTION_KEY", "solution"),
@@ -83,7 +92,7 @@ def main() -> None:
             hf_id = spec["hf_id"]
             if not hf_id:
                 continue
-            rows = _load_hf_dataset(hf_id, spec["split"])
+            rows = _load_hf_dataset(hf_id, spec["split"], spec.get("config"))
             for row in rows:
                 q = (row.get(spec["question_key"]) or "").strip()
                 sol = (row.get(spec["solution_key"]) or "").strip()

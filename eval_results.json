@@ -18,8 +18,8 @@
     "math_samples": 100
   },
   "hybrid": {
-    "perplexity_literature": 1311.3722,
-    "exact_match_math": 0.0,
+    "perplexity_literature": 46.06,
+    "exact_match_math": 0.06,
     "context_window": 1024,
     "max_target_tokens": 512,
     "max_new_tokens": 64,
