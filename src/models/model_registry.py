@@ -5,7 +5,7 @@ from typing import Any, Optional, Tuple
 from .tokenizer import get_tokenizer
 from .gpt2_loader import load_gpt2
 from .mamba_loader import load_mamba
-from .hybrid_model import load_hybrid, load_selective, load_mamba_selective, load_gpt2_mamba_selective
+from .hybrid_model import load_hybrid, load_selective, load_mamba_selective, load_gpt2_mamba_selective, load_hybrid2
 from .hybrid_llm_loader import load_hybrid_llm
 
 
@@ -28,8 +28,10 @@ def get_model(
         return load_mamba_selective(device=device, **model_kwargs)
     if name == "gpt2_mamba_selective":
         return load_gpt2_mamba_selective(device=device, **model_kwargs)
+    if name == "hybrid2":
+        return load_hybrid2(device=device, **model_kwargs)
     raise ValueError(f"Invalid model name: {name}")
 
 
 def list_models() -> list[str]:
-    return ["gpt2", "mamba", "hybrid", "hybrid_llm", "selective", "mamba_selective", "gpt2_mamba_selective"]
+    return ["gpt2", "mamba", "hybrid", "hybrid_llm", "selective", "mamba_selective", "gpt2_mamba_selective", "hybrid2"]

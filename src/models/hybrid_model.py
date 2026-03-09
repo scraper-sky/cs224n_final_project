@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, Tuple
 
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -434,7 +435,8 @@ class HybridMambaTransformer(nn.Module):
 def _copy_pretrained_weights(model: HybridMambaTransformer) -> None:
     from transformers import GPT2LMHeadModel
 
-    gpt2_src = GPT2LMHeadModel.from_pretrained("gpt2")
+    model_id = os.environ.get("GPT2_BASE_MODEL", "gpt2")
+    gpt2_src = GPT2LMHeadModel.from_pretrained(model_id)
     gpt2_src.eval()
 
     model.embed.weight.data.copy_(gpt2_src.transformer.wte.weight.data)
@@ -538,7 +540,8 @@ class Gpt2MambaSelectiveTransformer(nn.Module):
 
 def _copy_gpt2_to_mamba_selective(model: Gpt2MambaSelectiveTransformer) -> None:
     from transformers import GPT2LMHeadModel
-    gpt2 = GPT2LMHeadModel.from_pretrained("gpt2")
+    model_id = os.environ.get("GPT2_BASE_MODEL", "gpt2")
+    gpt2 = GPT2LMHeadModel.from_pretrained(model_id)
     model.embed.weight.data.copy_(gpt2.transformer.wte.weight)
     model.pos_embed.weight.data.copy_(gpt2.transformer.wpe.weight)
     model.ln_f.weight.data.copy_(gpt2.transformer.ln_f.weight)
@@ -762,7 +765,8 @@ def load_selective(device: Optional[str] = None, **kwargs: Any) -> Tuple[Any, "P
 
 def _init_selective_from_gpt2(model: SelectiveContextTransformer) -> None:
     from transformers import GPT2LMHeadModel
-    gpt2 = GPT2LMHeadModel.from_pretrained("gpt2")
+    model_id = os.environ.get("GPT2_BASE_MODEL", "gpt2")
+    gpt2 = GPT2LMHeadModel.from_pretrained(model_id)
     model.embed.weight.data.copy_(gpt2.transformer.wte.weight)
     model.pos_embed.weight.data.copy_(gpt2.transformer.wpe.weight)
     model.ln_f.weight.data.copy_(gpt2.transformer.ln_f.weight)
@@ -800,7 +804,8 @@ def load_mamba_selective(device: Optional[str] = None, **kwargs: Any) -> Tuple[A
 
 def _init_mamba_selective_from_gpt2(model: MambaSelectiveContextTransformer) -> None:
     from transformers import GPT2LMHeadModel
-    gpt2 = GPT2LMHeadModel.from_pretrained("gpt2")
+    model_id = os.environ.get("GPT2_BASE_MODEL", "gpt2")
+    gpt2 = GPT2LMHeadModel.from_pretrained(model_id)
     model.embed.weight.data.copy_(gpt2.transformer.wte.weight)
     model.pos_embed.weight.data.copy_(gpt2.transformer.wpe.weight)
     model.ln_f.weight.data.copy_(gpt2.transformer.ln_f.weight)
@@ -831,6 +836,60 @@ def freeze_gpt2_in_mamba_selective(model: Gpt2MambaSelectiveTransformer) -> None
             param.requires_grad = False
 
 
+class Gpt2ResidualAdaptor(nn.Module):
+    def __init__(self, base_model_id: str = "gpt2", adaptor_hidden: int = 256):
+        super().__init__()
+        from transformers import GPT2LMHeadModel
+
+        self.base = GPT2LMHeadModel.from_pretrained(base_model_id)
+        for p in self.base.parameters():
+            p.requires_grad = False
+
+        hidden_size = self.base.config.n_embd
+        vocab_size = self.base.config.vocab_size
+        self.vocab_size = vocab_size
+
+        self.adaptor = nn.Sequential(
+            nn.Linear(hidden_size, adaptor_hidden),
+            nn.GELU(),
+            nn.Linear(adaptor_hidden, vocab_size),
+        )
+        # Scalar gate; start near 0 so we initially match GPT-2.
+        self.alpha = nn.Parameter(torch.tensor(0.0))
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        **kwargs: Any,
+    ):
+        base_out = self.base(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            labels=None,
+        )
+        logits_base = base_out.logits
+        hidden = base_out.hidden_states[-1]
+
+        delta_logits = self.adaptor(hidden)
+        gate = torch.sigmoid(self.alpha)
+        logits = logits_base + gate * delta_logits
+
+        loss = None
+        if labels is not None:
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_labels = labels[:, 1:].contiguous()
+            loss = F.cross_entropy(
+                shift_logits.view(-1, self.vocab_size),
+                shift_labels.view(-1),
+                ignore_index=-100,
+            )
+
+        return type("Output", (), {"loss": loss, "logits": logits})()
+
+
 def load_gpt2_mamba_selective(device: Optional[str] = None, **kwargs: Any) -> Tuple[Any, "PreTrainedTokenizerBase"]:
     tokenizer = get_tokenizer("gpt2")
     vocab_size = tokenizer.vocab_size if hasattr(tokenizer, "vocab_size") else len(tokenizer)
@@ -851,6 +910,17 @@ def load_gpt2_mamba_selective(device: Optional[str] = None, **kwargs: Any) -> Tu
         _copy_gpt2_to_mamba_selective(model)
     if do_freeze_gpt2:
         freeze_gpt2_in_mamba_selective(model)
+    if device is not None:
+        model = model.to(device)
+    return model, tokenizer
+
+
+def load_hybrid2(device: Optional[str] = None, **kwargs: Any) -> Tuple[Any, "PreTrainedTokenizerBase"]:
+    tokenizer = get_tokenizer("gpt2")
+    base_id = os.environ.get("GPT2_BASE_MODEL", "gpt2")
+    adaptor_hidden = kwargs.pop("adaptor_hidden", 256)
+
+    model = Gpt2ResidualAdaptor(base_model_id=base_id, adaptor_hidden=adaptor_hidden)
     if device is not None:
         model = model.to(device)
     return model, tokenizer
