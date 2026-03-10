@@ -28,9 +28,10 @@ def main() -> None:
 
     records: list[dict[str, Any]] = []
     for row in ds:
-        q = (row.get(question_key) or "").strip()
+        raw_q = row.get(question_key)
+        q = (raw_q or "").strip()
         if not q:
-            continue
+            q = str(row).strip()
         sol = (row.get(solution_key) or "").strip() if solution_key else ""
         ans = (row.get(answer_key) or "").strip()
         rec = {
