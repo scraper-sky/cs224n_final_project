@@ -3,8 +3,10 @@ import math
 import os
 import re
 import sys
+import random
 
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -40,6 +42,90 @@ def compute_perplexity(model, tokenizer, chunks_path, device, context_window, ma
                 total_loss += out.loss.item() * n_tgt
                 total_tokens += n_tgt
     return math.exp(total_loss / total_tokens) if total_tokens > 0 else float("inf")
+
+
+def _token_logprob_sum(model, input_ids: torch.Tensor, labels: torch.Tensor) -> float:
+    """
+    Returns sum of log p(label_t | prefix) over non-masked labels.
+    Expects input_ids shape [1, T], labels shape [1, T] with -100 mask.
+    """
+    out = model(input_ids=input_ids)
+    logits = out.logits  # [1, T, V]
+    # Shift so logits[t] predicts labels[t+1]
+    logits = logits[:, :-1, :]
+    labels = labels[:, 1:]
+    mask = labels.ne(-100)
+    if mask.sum().item() == 0:
+        return float("-inf")
+    log_probs = F.log_softmax(logits, dim=-1)
+    token_lp = log_probs.gather(-1, labels.clamp(min=0).unsqueeze(-1)).squeeze(-1)
+    return float((token_lp * mask).sum().item())
+
+
+def compute_next_sentence_preference(
+    model,
+    tokenizer,
+    chunks_path: str,
+    device,
+    context_window: int,
+    max_target_tokens: int,
+    max_samples: int | None,
+    seed: int = 42,
+) -> float:
+    """
+    For each sample, compares the log-likelihood of the true continuation vs
+    a randomly-chosen continuation from a different sample.
+
+    Returns preference accuracy in [0, 1].
+    """
+    model.eval()
+    with open(chunks_path, "r", encoding="utf-8") as f:
+        lines = [l.strip() for l in f if l.strip()]
+    if max_samples is not None:
+        lines = lines[:max_samples]
+    if len(lines) < 2:
+        return 0.0
+
+    objs = [json.loads(l) for l in lines]
+    targets = [(o.get("target_text") or "") for o in objs]
+
+    rng = random.Random(seed)
+    correct = 0
+    total = 0
+
+    with torch.inference_mode():
+        for i, obj in enumerate(tqdm(objs, desc="next-sentence pref")):
+            ctx = (obj.get("context_text") or "").strip()
+            true_tgt = (obj.get("target_text") or "").strip()
+            if not ctx or not true_tgt:
+                continue
+
+            # pick a negative from a different sample
+            j = i
+            while j == i:
+                j = rng.randrange(0, len(targets))
+            neg_tgt = (targets[j] or "").strip()
+            if not neg_tgt:
+                continue
+
+            def score(tgt: str) -> float:
+                ctx_ids = tokenizer.encode(ctx, add_special_tokens=False)
+                tgt_ids = tokenizer.encode(tgt, add_special_tokens=False)[:max_target_tokens]
+                ctx_budget = context_window - len(tgt_ids)
+                ctx_ids2 = ctx_ids[-ctx_budget:] if ctx_budget > 0 else []
+                all_ids = ctx_ids2 + tgt_ids
+                input_ids = torch.tensor([all_ids], dtype=torch.long).to(device)
+                labels = torch.full_like(input_ids, -100)
+                labels[0, len(ctx_ids2):] = input_ids[0, len(ctx_ids2):]
+                return _token_logprob_sum(model, input_ids, labels)
+
+            lp_true = score(true_tgt)
+            lp_neg = score(neg_tgt)
+            if lp_true > lp_neg:
+                correct += 1
+            total += 1
+
+    return correct / total if total > 0 else 0.0
 
 
 def _normalize(s: str) -> str:
@@ -154,6 +240,13 @@ def main():
     max_math_samples = int(os.environ.get("MAX_MATH_SAMPLES", "100"))
     max_secondary_samples = int(os.environ.get("MAX_SECONDARY_SAMPLES", "100"))
 
+    next_sent_enabled = os.environ.get("NEXT_SENT_TEST", "0").lower() in ("1", "true", "yes")
+    next_sent_only = os.environ.get("NEXT_SENT_ONLY", "0").lower() in ("1", "true", "yes")
+    next_sent_samples = os.environ.get("NEXT_SENT_SAMPLES")
+    next_sent_samples_i = int(next_sent_samples) if next_sent_samples is not None else max_lit_samples
+    next_sent_seed = int(os.environ.get("NEXT_SENT_SEED", "42"))
+    next_sent_max_tgt = int(os.environ.get("NEXT_SENT_MAX_TARGET_TOKENS", str(max_target_tokens)))
+
     if os.path.exists(results_path):
         with open(results_path, "r", encoding="utf-8") as f:
             all_results = json.load(f)
@@ -173,6 +266,29 @@ def main():
             print(f"    loaded checkpoint: {ckpt_path} (step {ckpt.get('step', '?')})")
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
+
+        next_sent_acc = None
+        if next_sent_enabled:
+            next_sent_acc = compute_next_sentence_preference(
+                model,
+                tokenizer,
+                chunks_path,
+                device,
+                context_window=context_window,
+                max_target_tokens=next_sent_max_tgt,
+                max_samples=next_sent_samples_i,
+                seed=next_sent_seed,
+            )
+            print(f"  next-sentence pref (literature): {next_sent_acc:.4f}")
+            if next_sent_only:
+                all_results[name] = {
+                    "next_sentence_pref_literature": round(next_sent_acc, 4),
+                    "next_sent_samples": next_sent_samples_i,
+                    "next_sent_seed": next_sent_seed,
+                    "context_window": context_window,
+                    "max_target_tokens": next_sent_max_tgt,
+                }
+                continue
 
         perplexity = compute_perplexity(
             model, tokenizer, chunks_path, device,
@@ -196,6 +312,7 @@ def main():
 
         all_results[name] = {
             "perplexity_literature": round(perplexity, 4),
+            "next_sentence_pref_literature": round(next_sent_acc, 4) if next_sent_acc is not None else None,
             "exact_match_math": round(em, 4),
             "exact_match_secondary": round(em_secondary, 4) if em_secondary is not None else None,
             "context_window": context_window,
