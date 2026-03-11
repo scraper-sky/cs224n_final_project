@@ -596,6 +596,26 @@ def _copy_gpt2_to_mamba_selective(model: Gpt2MambaSelectiveTransformer) -> None:
         layer.mlp[2].bias.data.copy_(src.mlp.c_proj.bias)
     del gpt2
 
+    if os.environ.get("GPT2_MAMBA_SELECTIVE_COPY_MAMBA", "1").lower() in ("1", "true", "yes"):
+        _copy_mamba_to_gpt2_mamba_selective(model)
+
+
+def _copy_mamba_to_gpt2_mamba_selective(model: Gpt2MambaSelectiveTransformer) -> None:
+    from transformers import MambaForCausalLM
+
+    mamba_src = MambaForCausalLM.from_pretrained("state-spaces/mamba-130m-hf")
+    src_sd = mamba_src.state_dict()
+    for i, layer in enumerate(model.layers):
+        prefix_src = f"backbone.layers.{i}."
+        to_load = {}
+        for k, v in src_sd.items():
+            if k.startswith(prefix_src):
+                dst_key = k[len(prefix_src):]
+                to_load[dst_key] = v
+        if to_load:
+            layer.mamba.load_state_dict(to_load, strict=False)
+    del mamba_src
+
 
 def load_hybrid(device: Optional[str] = None, **kwargs: Any) -> Tuple[Any, "PreTrainedTokenizerBase"]:
     tokenizer = get_tokenizer("gpt2")
