@@ -378,8 +378,10 @@ class HybridMambaTransformer(nn.Module):
             nn.Linear(hidden_size, hidden_size),
             nn.LayerNorm(hidden_size),
         )
-        gate_init = float(os.environ.get("HYBRID_MAMBA_GATE_INIT", "1.0"))
+        fusion_mode = os.environ.get("HYBRID_FUSION_MODE", "convex")
+        gate_init = float(os.environ.get("HYBRID_MAMBA_GATE_INIT", "0.0" if fusion_mode == "convex" else "1.0"))
         self.mamba_gate = nn.Parameter(torch.tensor([gate_init]))
+        self.fusion_mode = fusion_mode
         self.ln_f = nn.LayerNorm(hidden_size)
         self.lm_head = nn.Linear(hidden_size, vocab_size, bias=False)
 
@@ -415,9 +417,13 @@ class HybridMambaTransformer(nn.Module):
         h_mamba = self.mamba_branch[0](x)
         h_mamba = self.mamba_branch[1](h_mamba)
         h_mamba = self.mamba_branch[2](h_mamba)
-        scale_factor = float(os.environ.get("HYBRID_MAMBA_SCALE", "0.2"))
-        scale = scale_factor * torch.sigmoid(self.mamba_gate)
-        h = h_attn + scale * h_mamba
+        alpha = torch.sigmoid(self.mamba_gate)
+        if self.fusion_mode == "convex":
+            h = alpha * h_attn + (1.0 - alpha) * h_mamba
+        else:
+            scale_factor = float(os.environ.get("HYBRID_MAMBA_SCALE", "0.2"))
+            scale = scale_factor * alpha
+            h = h_attn + scale * h_mamba
         h = self.ln_f(h)
         logits = self.lm_head(h)
 
@@ -449,13 +455,16 @@ def _copy_pretrained_weights(model: HybridMambaTransformer) -> None:
     model.ln_f.bias.data.copy_(gpt2_src.transformer.ln_f.bias.data)
     model.lm_head.weight.data.copy_(gpt2_src.lm_head.weight.data)
 
-    nn.init.xavier_uniform_(model.mamba_branch[1].weight, gain=0.1)
-    nn.init.zeros_(model.mamba_branch[1].bias)
+    copy_mamba = os.environ.get("HYBRID_COPY_MAMBA_WEIGHTS", "1").lower() in ("1", "true", "yes")
+    if copy_mamba:
+        _copy_mamba_weights_to_hybrid(model)
+        nn.init.eye_(model.mamba_branch[1].weight)
+        nn.init.zeros_(model.mamba_branch[1].bias)
+    else:
+        nn.init.xavier_uniform_(model.mamba_branch[1].weight, gain=0.1)
+        nn.init.zeros_(model.mamba_branch[1].bias)
 
     del gpt2_src
-
-    if os.environ.get("HYBRID_COPY_MAMBA_WEIGHTS", "0").lower() in ("1", "true", "yes"):
-        _copy_mamba_weights_to_hybrid(model)
 
 
 def _copy_mamba_weights_to_hybrid(model: HybridMambaTransformer) -> None:
