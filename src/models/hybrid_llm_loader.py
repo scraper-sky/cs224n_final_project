@@ -1,3 +1,4 @@
+"""loads hybrid model from checkpoints and config"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, Tuple

@@ -1,3 +1,4 @@
+"""this tracks hybrid gate values over training"""
 from __future__ import annotations
 
 import argparse

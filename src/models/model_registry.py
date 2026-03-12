@@ -1,3 +1,4 @@
+"""Dispatches to the right model loader by name"""
 from __future__ import annotations
 
 from typing import Any, Optional, Tuple

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+"""this runs literature perplexity across context lengths and saves a plot"""
 import argparse
 import os
 import subprocess

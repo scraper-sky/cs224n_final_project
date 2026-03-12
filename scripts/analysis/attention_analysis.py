@@ -1,3 +1,4 @@
+"""this analyzes GPT-2 attention patterns on math prompts"""
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,4 @@
+"""implements and defines the hybrid GPT-2 and Mamba architectures"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, Tuple

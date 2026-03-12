@@ -1,3 +1,4 @@
+"""here we plot loss curves from training logs"""
 from __future__ import annotations
 
 import argparse

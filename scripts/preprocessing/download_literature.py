@@ -1,3 +1,4 @@
+"""this script downloads and saves high-quality samples from Gutenberg dataset"""
 import json
 import os
 import random

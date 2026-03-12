@@ -1,3 +1,4 @@
+"""this tests balanced math/literature training"""
 import json
 import os
 import sys

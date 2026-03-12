@@ -1,3 +1,4 @@
+"""this script evaluates math and literature at different context lengths"""
 from __future__ import annotations
 
 import argparse

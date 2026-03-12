@@ -1,3 +1,4 @@
+"""this is a minimal script to test one GPT-2 forward pass"""
 from src.models import get_model
 
 

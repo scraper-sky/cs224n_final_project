@@ -1,3 +1,4 @@
+"""this script downloads GSM8K and AMC23 datasets"""
 import json
 import os
 from typing import Any, Dict, List

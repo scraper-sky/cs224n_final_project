@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+"""runs all interpretability scripts for all models (win/loss, gates, saliency)""""
 import glob
 import os
 import subprocess

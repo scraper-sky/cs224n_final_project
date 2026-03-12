@@ -1,3 +1,4 @@
+"""this debugs perplexity by checking Layernorm and GPT-2 baseline"""
 import os
 import sys
 

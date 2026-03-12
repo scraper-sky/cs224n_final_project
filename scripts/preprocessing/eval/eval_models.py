@@ -1,3 +1,4 @@
+"""here we evaluate the models across all benchmarks by running perplexity and exact-match math evaluation"""
 import json
 import math
 import os

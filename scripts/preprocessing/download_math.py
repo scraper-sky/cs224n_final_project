@@ -1,3 +1,4 @@
+"""this script downloads OlympiadBench dataset"""
 import json
 import os
 

@@ -1,3 +1,4 @@
+"""this is a Mamba saliency analysis on math examples"""
 from __future__ import annotations
 
 import argparse

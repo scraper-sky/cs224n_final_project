@@ -1,3 +1,4 @@
+"""this classifiers wrong answers into heuristic error categories"""
 from __future__ import annotations
 
 import argparse

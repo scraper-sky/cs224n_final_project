@@ -1,3 +1,4 @@
+"""this chukns books into fixed-length context/target pairs"""
 import json
 import os
 import sys

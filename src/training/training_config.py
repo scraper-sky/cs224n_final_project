@@ -1,3 +1,5 @@
+"""this is used to train the hyperparameters and paths from env vars"""
+
 import os
 from typing import Any, Optional
 

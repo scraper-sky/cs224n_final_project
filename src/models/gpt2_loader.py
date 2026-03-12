@@ -1,3 +1,4 @@
+"""loads GPT-2 model from Hugging Face"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, Tuple

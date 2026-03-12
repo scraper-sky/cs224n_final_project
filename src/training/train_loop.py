@@ -1,3 +1,4 @@
+"""training loop with math/literature mixing and checkpointing implemented"""
 import itertools
 import os
 import random

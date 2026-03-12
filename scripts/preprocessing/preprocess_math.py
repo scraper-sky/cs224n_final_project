@@ -1,3 +1,4 @@
+"""this normalizes LaTeX and writes OlympiadBench to JSONl"""
 import json
 import re
 
