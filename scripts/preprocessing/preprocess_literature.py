@@ -1,22 +1,12 @@
-# here we preprocess the literature data for the perplexity evaluation
-# we split each book into context (7000 tokens) and target (1192 tokens)
-# we read the gutenberg_literature.jsonl file and write the gutenberg_7000_1192.jsonl file
-# we run this from the project root with 'python scripts/preprocess_literature.py'
-# this requires running the command 'pip install datasets'
-# this requires gutenberg_literature.jsonl from scripts/downloa_literature.py 
 import json
 import os
 import sys
 
-# here we set the paths for the input and output files
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-# here we set the context and target lengths
-# the context length is what we feed to the model as context
-# the target length is what the length of the token sequence that the model predicts
 CONTEXT_LEN = 7000
 TARGET_LEN = 1192
 TOTAL_LEN = CONTEXT_LEN + TARGET_LEN

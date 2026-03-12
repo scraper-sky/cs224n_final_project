@@ -47,7 +47,6 @@ def _build_bool_attention_mask(input_ids: torch.Tensor, attention_mask: torch.Te
 
 
 def collect_gpt2_attentions(model, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> list[torch.Tensor]:
-    # Some HF backends return None for attentions unless eager attention is enabled.
     if hasattr(model, "config"):
         setattr(model.config, "_attn_implementation", "eager")
     if hasattr(model, "transformer") and hasattr(model.transformer, "config"):

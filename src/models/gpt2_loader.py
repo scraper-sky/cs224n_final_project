@@ -1,5 +1,3 @@
-# Load Hugging Face GPT-2 (causal LM). Same architecture as Karpathy minGPT.
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, Tuple

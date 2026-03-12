@@ -3,7 +3,6 @@ import os
 
 
 def _load_olympiad_via_parquet(configs):
-    """Load OlympiadBench from parquet URLs (bypasses broken dataset card)."""
     from datasets import load_dataset
 
     base = "https://huggingface.co/datasets/Hothan/OlympiadBench/resolve/main/OlympiadBench"

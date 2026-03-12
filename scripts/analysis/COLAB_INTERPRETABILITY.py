@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""
-Comprehensive Colab script for HMT interpretability analysis.
-
-Run all analyses and produce a summary for your paper's interpretability section.
-Supports the narrative:
-  - Mamba: best at "keep the gist of a long passage alive" (literature)
-  - Transformer: best at "don't lose exact details" (math)
-  - Hybrid: gate stays shut on Mamba branch; behaves like Transformer + unused Mamba
-
-USAGE in Colab:
-  1. Clone repo, pip install, upload hybrid checkpoint
-  2. Run: python scripts/analysis/COLAB_INTERPRETABILITY.py
-
-Or run cells individually (see COLAB_INTERPRETABILITY_NOTEBOOK.md for cell-by-cell).
-"""
 
 from __future__ import annotations
 
@@ -22,18 +7,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-# --- CONFIG (edit these for your setup) ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-HYBRID_CKPT = "checkpoints/hybrid_step500.pt"  # or your latest hybrid checkpoint
+HYBRID_CKPT = "checkpoints/hybrid_step500.pt"
 MODELS = "gpt2,mamba,hybrid"
-MAX_SAMPLES = 50  # smaller = faster; 100 for full analysis
+MAX_SAMPLES = 50
 CONTEXT_LENGTHS = "128,256,512,1024"
 
 CKPT_MAP = f"hybrid={HYBRID_CKPT}"
 
 
 def run_cmd(cmd: list[str], cwd: Path | None = None) -> int:
-    """Run command with PROJECT_ROOT on PYTHONPATH for script imports."""
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     return subprocess.run(cmd, cwd=cwd or PROJECT_ROOT, env=env).returncode
@@ -130,7 +113,6 @@ def main() -> int:
 
 
 def print_summary(root: Path) -> None:
-    """Print key findings for the paper's interpretability section."""
     import csv
 
     print("\n--- INTERPRETABILITY SUMMARY (for paper) ---\n")
@@ -167,7 +149,6 @@ def print_summary(root: Path) -> None:
                 gate_note = "~50/50 blend (both branches used)"
             print(f"Hybrid gate: sigmoid(mamba_gate) ≈ {sig:.4f} ({gate_note})\n")
 
-    # Context sensitivity: Mamba wins at long context for literature
     ctx_path = root / "scripts/analysis/outputs/context_sensitivity/context_sensitivity.csv"
     if ctx_path.exists():
         with open(ctx_path) as f:
@@ -202,7 +183,6 @@ def print_summary(root: Path) -> None:
             best_math = max(by_model.items(), key=lambda x: (x[1][-1][1] if x[1] else 0))
             print(f"  (Higher is better; best in this slice: {best_math[0]})\n")
 
-    # Error taxonomy: hybrid has more formatting/extraction failures
     tax_path = root / "scripts/analysis/outputs/error_taxonomy/error_taxonomy_summary.csv"
     if tax_path.exists():
         with open(tax_path) as f:

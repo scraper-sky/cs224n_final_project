@@ -1,5 +1,3 @@
-# load preprocessed math JSONL from scripts/preprocessing/preprocess_math.py, tokenize, batch
-
 import json
 import torch
 

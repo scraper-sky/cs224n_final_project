@@ -50,8 +50,7 @@ def _token_logprob_sum(model, input_ids: torch.Tensor, labels: torch.Tensor) -> 
     Expects input_ids shape [1, T], labels shape [1, T] with -100 mask.
     """
     out = model(input_ids=input_ids)
-    logits = out.logits  # [1, T, V]
-    # Shift so logits[t] predicts labels[t+1]
+    logits = out.logits
     logits = logits[:, :-1, :]
     labels = labels[:, 1:]
     mask = labels.ne(-100)
@@ -100,7 +99,6 @@ def compute_next_sentence_preference(
             if not ctx or not true_tgt:
                 continue
 
-            # pick a negative from a different sample
             j = i
             while j == i:
                 j = rng.randrange(0, len(targets))

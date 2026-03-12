@@ -29,11 +29,10 @@ def main() -> None:
             "config": os.environ.get("GSM8K_CONFIG", "main"),
             "split": os.environ.get("GSM8K_SPLIT", "test"),
             "question_key": "question",
-            "solution_key": "answer",  # contains rationale + final answer
-            "final_answer_key": None,  # we will extract from solution in preprocessing
+            "solution_key": "answer",
+            "final_answer_key": None,
             "id_key": "id",
         },
-        # Placeholders for other benchmarks; set *_DATASET env vars to enable.
         {
             "name": "math500",
             "hf_id": os.environ.get("MATH500_DATASET", ""),

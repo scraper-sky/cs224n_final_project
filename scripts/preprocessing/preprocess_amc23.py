@@ -41,7 +41,6 @@ def main() -> None:
         }
         records.append(rec)
 
-    # simple 75/25 split
     import random
 
     random.seed(42)
