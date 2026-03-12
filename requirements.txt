@@ -7,8 +7,6 @@ transformers>=4.30,<5.0
 datasets>=2.14,<3.0
 tokenizers>=0.13
 
-# Mamba / SSM will requires CUDA and matching PyTorch; check README; will be implemented later 
-
 # Utilities for feedback, visualization, and loading API
 tqdm>=4.65,<5.0
 pyyaml>=6.0,<7.0
