@@ -140,7 +140,7 @@ def print_summary(root: Path) -> None:
     if pw_path.exists():
         with open(pw_path) as f:
             rows = list(csv.DictReader(f))
-        print("Pairwise Win/Loss (hybrid gets almost no unique wins):")
+        print("Pairwise Win/Loss:")
         for r in rows:
             left, right = r["left_model"], r["right_model"]
             wins = int(r.get("left_only_correct", 0))
@@ -149,15 +149,23 @@ def print_summary(root: Path) -> None:
                 print(f"  {left} vs {right}: wins={wins} losses={losses} ties={r.get('same_result', 0)}")
         print()
 
-    # Gate: Mamba branch shut off
+    # Gate: data-driven interpretation
+    gate_sig: float | None = None
     gate_path = root / "scripts/analysis/outputs/hybrid_gates/hybrid_gate_values.csv"
     if gate_path.exists():
         with open(gate_path) as f:
-            rows = list(csv.DictReader(f))
-        if rows:
-            last = rows[-1]
+            gate_rows = list(csv.DictReader(f))
+        if gate_rows:
+            last = gate_rows[-1]
             sig = float(last.get("sigmoid_value", 0))
-            print(f"Hybrid gate: sigmoid(mamba_gate) ≈ {sig:.4f} (Mamba branch almost shut off)\n")
+            gate_sig = sig
+            if sig < 0.15:
+                gate_note = "Mamba branch mostly off"
+            elif sig > 0.85:
+                gate_note = "Mamba branch dominant"
+            else:
+                gate_note = "~50/50 blend (both branches used)"
+            print(f"Hybrid gate: sigmoid(mamba_gate) ≈ {sig:.4f} ({gate_note})\n")
 
     # Context sensitivity: Mamba wins at long context for literature
     ctx_path = root / "scripts/analysis/outputs/context_sensitivity/context_sensitivity.csv"
@@ -178,7 +186,7 @@ def print_summary(root: Path) -> None:
                 pts.sort(key=lambda x: x[0])
                 ppl = pts[-1][1] if pts else 0
                 print(f"  {m}: {ppl:.2f}")
-            print("  (Lower is better; Mamba expected best)\n")
+            print("  (Lower is better)\n")
         if math_rows:
             by_model = {}
             for r in math_rows:
@@ -191,7 +199,8 @@ def print_summary(root: Path) -> None:
                 pts.sort(key=lambda x: x[0])
                 acc = pts[-1][1] * 100 if pts else 0
                 print(f"  {m}: {acc:.1f}%")
-            print("  (Transformer/GPT-2 expected best)\n")
+            best_math = max(by_model.items(), key=lambda x: (x[1][-1][1] if x[1] else 0))
+            print(f"  (Higher is better; best in this slice: {best_math[0]})\n")
 
     # Error taxonomy: hybrid has more formatting/extraction failures
     tax_path = root / "scripts/analysis/outputs/error_taxonomy/error_taxonomy_summary.csv"
@@ -209,7 +218,15 @@ def print_summary(root: Path) -> None:
     print("--- Narrative ---")
     print("Mamba: best at 'keep the gist of a long passage alive' (literature perplexity)")
     print("Transformer: best at 'don't lose exact details' (math accuracy)")
-    print("Hybrid: gate keeps Mamba off → behaves like Transformer + unused Mamba")
+    if gate_sig is not None:
+        if gate_sig < 0.15:
+            print("Hybrid: gate favors Transformer → mostly attention, little Mamba")
+        elif gate_sig > 0.85:
+            print("Hybrid: gate favors Mamba → mostly Mamba, little attention")
+        else:
+            print("Hybrid: gate ~50/50 → uses both attention and Mamba mechanisms")
+    else:
+        print("Hybrid: blends attention and Mamba based on learned gate")
     print("Treat 100-example slices as supporting diagnostics, not final numbers.")
 
 

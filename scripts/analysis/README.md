@@ -78,6 +78,17 @@ Outputs:
 - `context_sensitivity.csv`
 - optional PNG plots for math and literature
 
+### 2b. Literature perplexity vs context length (one plot only)
+
+For interpretability: run only literature perplexity at varying context lengths and produce one plot. Skips math evaluation.
+
+```bash
+python scripts/analysis/run_literature_context_sensitivity.py
+# Plot: scripts/analysis/outputs/context_sensitivity/context_sensitivity_literature.png
+```
+
+Optional: `--checkpoint-map`, `--max-samples`, `--lengths`, `--models`
+
 ### 3. Re-run training with logs
 
 ```bash
