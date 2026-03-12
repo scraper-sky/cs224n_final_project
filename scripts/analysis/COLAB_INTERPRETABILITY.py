@@ -33,8 +33,10 @@ CKPT_MAP = f"hybrid={HYBRID_CKPT}"
 
 
 def run_cmd(cmd: list[str], cwd: Path | None = None) -> int:
-    """Run command, return exit code."""
-    return subprocess.run(cmd, cwd=cwd or PROJECT_ROOT).returncode
+    """Run command with PROJECT_ROOT on PYTHONPATH for script imports."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    return subprocess.run(cmd, cwd=cwd or PROJECT_ROOT, env=env).returncode
 
 
 def main() -> int:
