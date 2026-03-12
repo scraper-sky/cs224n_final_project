@@ -1,122 +1,231 @@
+"""
+Re-run evaluation at several context lengths.
+Measures how math exact match and/or literature perplexity change as visible context shrinks.
+"""
+
 from __future__ import annotations
 
 import argparse
-import re
-from collections import Counter
+import json
+import math
 
-from scripts.analysis._common import ensure_dir, read_jsonl, write_csv
+import torch
+from tqdm import tqdm
+
+from scripts.analysis._common import (
+    build_math_prompt,
+    default_data_dir,
+    default_device,
+    ensure_dir,
+    generate_prediction,
+    get_record_id,
+    load_model_and_tokenizer,
+    match_answer,
+    parse_checkpoint_map,
+    parse_csv_list,
+    parse_int_list,
+    read_jsonl,
+    truncate_prompt_by_tokens,
+    write_csv,
+)
 
 
-NUM_RE = re.compile(r"-?\d+\.?\d*")
+def compute_literature_perplexity(
+    model,
+    tokenizer,
+    chunks_path: str,
+    device: str,
+    max_context_tokens: int,
+    max_target_tokens: int,
+    max_samples: int,
+) -> float:
+    model.eval()
+    total_loss = 0.0
+    total_tokens = 0
+
+    with open(chunks_path, "r", encoding="utf-8") as f:
+        lines = [l.strip() for l in f if l.strip()]
+    lines = lines[:max_samples] if max_samples else lines
+
+    with torch.inference_mode():
+        for line in tqdm(lines, desc=f"perplexity_ctx{max_context_tokens}"):
+            obj = json.loads(line)
+            ctx_ids = tokenizer.encode(obj.get("context_text", ""), add_special_tokens=False)
+            tgt_ids = tokenizer.encode(obj.get("target_text", ""), add_special_tokens=False)[:max_target_tokens]
+            ctx_budget = max(0, max_context_tokens - len(tgt_ids))
+            ctx_ids = ctx_ids[-ctx_budget:] if ctx_budget > 0 else []
+            all_ids = ctx_ids + tgt_ids
+            if not tgt_ids:
+                continue
+            input_ids = torch.tensor([all_ids], dtype=torch.long).to(device)
+            labels = torch.full_like(input_ids, -100)
+            labels[0, len(ctx_ids) :] = input_ids[0, len(ctx_ids) :]
+            out = model(input_ids=input_ids, labels=labels)
+            n_tgt = len(tgt_ids)
+            total_loss += out.loss.item() * n_tgt
+            total_tokens += n_tgt
+    return math.exp(total_loss / total_tokens) if total_tokens > 0 else float("inf")
+
+
+def compute_math_accuracy(
+    model,
+    tokenizer,
+    records: list,
+    device: str,
+    max_context_tokens: int,
+    context_window: int,
+    max_new_tokens: int,
+) -> float:
+    correct = 0
+    for index, record in enumerate(tqdm(records, desc=f"math_ctx{max_context_tokens}")):
+        prompt = build_math_prompt(record)
+        prompt = truncate_prompt_by_tokens(tokenizer, prompt, max_context_tokens)
+        gold = (record.get("final_answer") or "").strip()
+        pred_text, _, _ = generate_prediction(
+            model,
+            tokenizer,
+            prompt,
+            device=device,
+            context_window=min(context_window, max_context_tokens + max_new_tokens),
+            max_new_tokens=max_new_tokens,
+        )
+        if match_answer(gold, pred_text):
+            correct += 1
+    return correct / len(records) if records else 0.0
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Heuristic error taxonomy from win/loss predictions.")
+    parser = argparse.ArgumentParser(description="Context-length sensitivity: math accuracy and/or literature perplexity.")
+    parser.add_argument("--models", default="gpt2,mamba,hybrid")
+    parser.add_argument("--input-path", default=str(default_data_dir() / "olympiad_preprocessed.jsonl"))
     parser.add_argument(
-        "--predictions-path",
-        default="scripts/analysis/outputs/win_loss/per_example_predictions.jsonl",
+        "--literature-path",
+        default=str(default_data_dir() / "gutenberg_7000_1192.jsonl"),
     )
-    parser.add_argument("--output-dir", default="scripts/analysis/outputs/error_taxonomy")
+    parser.add_argument("--output-dir", default="scripts/analysis/outputs/context_sensitivity")
+    parser.add_argument("--device", default=default_device())
+    parser.add_argument("--context-window", type=int, default=1024)
+    parser.add_argument("--max-new-tokens", type=int, default=128)
+    parser.add_argument("--max-target-tokens", type=int, default=64)
+    parser.add_argument("--lengths", default="128,256,512,1024", help="Comma-separated context lengths in tokens")
+    parser.add_argument("--mode", choices=["math", "literature", "both"], default="both")
+    parser.add_argument("--max-samples", type=int, default=50, help="Max samples for math and literature")
+    parser.add_argument("--checkpoint-path", default="")
+    parser.add_argument("--checkpoint-map", default="")
     return parser.parse_args()
-
-
-def classify_error(gold: str, pred: str, is_correct: bool) -> str:
-    if is_correct:
-        return "correct"
-    pred = (pred or "").strip().lower()
-    gold = (gold or "").strip().lower()
-    if not pred:
-        return "empty_output"
-    pred_nums = NUM_RE.findall(pred)
-    gold_nums = NUM_RE.findall(gold)
-    if gold_nums and not pred_nums:
-        return "no_numeric_answer"
-    if pred.endswith("..."):
-        return "truncated_output"
-    if "final answer" in pred and not pred_nums:
-        return "formatting_without_answer"
-    if gold_nums and pred_nums:
-        gold_val = gold_nums[-1]
-        pred_val = pred_nums[-1]
-        try:
-            if abs(float(gold_val)) == abs(float(pred_val)) and float(gold_val) != float(pred_val):
-                return "sign_error"
-            if abs(float(gold_val) - float(pred_val)) <= 1:
-                return "off_by_one_or_small_arithmetic"
-        except ValueError:
-            pass
-        if len(pred_nums) > 1:
-            return "wrong_final_extraction"
-        return "numeric_mismatch"
-    if len(pred.split()) > 12:
-        return "reasoning_trace_no_match"
-    return "other_text_mismatch"
 
 
 def main() -> None:
     args = parse_args()
     out_dir = ensure_dir(args.output_dir)
-    rows = read_jsonl(args.predictions_path)
+    models = parse_csv_list(args.models)
+    lengths = parse_int_list(args.lengths)
+    checkpoint_map = parse_checkpoint_map(args.checkpoint_map)
 
-    error_rows = []
-    summary_counter = Counter()
-    for row in rows:
-        gold = row.get("gold", "")
-        for key, value in row.items():
-            if not key.endswith("_prediction"):
-                continue
-            model = key[: -len("_prediction")]
-            pred = value
-            is_correct = bool(row.get(f"{model}_correct", False))
-            label = classify_error(gold, pred, is_correct)
-            error_rows.append(
-                {
-                    "record_id": row.get("record_id", ""),
-                    "model": model,
-                    "gold": gold,
-                    "prediction": pred,
-                    "correct": is_correct,
-                    "taxonomy_label": label,
-                }
-            )
-            summary_counter[(model, label)] += 1
+    rows = []
 
-    summary_rows = [
-        {"model": model, "taxonomy_label": label, "count": count}
-        for (model, label), count in sorted(summary_counter.items())
-    ]
+    for model_name in models:
+        model, tokenizer, ckpt_path = load_model_and_tokenizer(
+            model_name,
+            device=args.device,
+            checkpoint_path=args.checkpoint_path,
+            checkpoint_map=checkpoint_map,
+        )
 
-    write_csv(out_dir / "error_taxonomy_per_example.csv", error_rows)
-    write_csv(out_dir / "error_taxonomy_summary.csv", summary_rows)
+        for length in lengths:
+            if args.mode in ("math", "both"):
+                records = read_jsonl(args.input_path, limit=args.max_samples)
+                acc = compute_math_accuracy(
+                    model,
+                    tokenizer,
+                    records,
+                    args.device,
+                    max_context_tokens=length,
+                    context_window=args.context_window,
+                    max_new_tokens=args.max_new_tokens,
+                )
+                rows.append(
+                    {
+                        "model": model_name,
+                        "checkpoint": ckpt_path,
+                        "context_length": length,
+                        "task": "math",
+                        "metric": "exact_match_acc",
+                        "value": acc,
+                    }
+                )
+
+            if args.mode in ("literature", "both"):
+                try:
+                    ppl = compute_literature_perplexity(
+                        model,
+                        tokenizer,
+                        args.literature_path,
+                        args.device,
+                        max_context_tokens=length,
+                        max_target_tokens=args.max_target_tokens,
+                        max_samples=args.max_samples,
+                    )
+                    rows.append(
+                        {
+                            "model": model_name,
+                            "checkpoint": ckpt_path,
+                            "context_length": length,
+                            "task": "literature",
+                            "metric": "perplexity",
+                            "value": ppl,
+                        }
+                    )
+                except FileNotFoundError:
+                    print(f"Skipping literature for {model_name} @ {length}: {args.literature_path} not found")
+
+    write_csv(out_dir / "context_sensitivity.csv", rows)
 
     try:
         import matplotlib.pyplot as plt
 
-        models = sorted({row["model"] for row in summary_rows})
-        labels = sorted({row["taxonomy_label"] for row in summary_rows if row["taxonomy_label"] != "correct"})
-        fig, ax = plt.subplots(figsize=(10, 4))
-        width = 0.8 / max(1, len(models))
-        for model_idx, model in enumerate(models):
-            values = []
-            for label in labels:
-                count = next(
-                    (row["count"] for row in summary_rows if row["model"] == model and row["taxonomy_label"] == label),
-                    0,
-                )
-                values.append(count)
-            xs = [idx + (model_idx - (len(models) - 1) / 2) * width for idx in range(len(labels))]
-            ax.bar(xs, values, width=width, label=model)
-        ax.set_xticks(list(range(len(labels))))
-        ax.set_xticklabels(labels, rotation=25, ha="right")
-        ax.set_ylabel("Count")
-        ax.set_title("Heuristic error taxonomy")
-        ax.legend()
-        fig.savefig(out_dir / "error_taxonomy_summary.png", bbox_inches="tight")
-        plt.close(fig)
-    except Exception as exc:
-        print(f"Skipping error taxonomy plot: {exc}")
+        math_rows = [r for r in rows if r["task"] == "math"]
+        lit_rows = [r for r in rows if r["task"] == "literature"]
 
-    print(f"Wrote error taxonomy outputs to {out_dir}")
+        if math_rows:
+            fig, ax = plt.subplots(figsize=(8, 4))
+            for m in models:
+                mrows = [r for r in math_rows if r["model"] == m]
+                if mrows:
+                    ax.plot(
+                        [r["context_length"] for r in mrows],
+                        [r["value"] for r in mrows],
+                        marker="o",
+                        label=m,
+                    )
+            ax.set_xlabel("Context length (tokens)")
+            ax.set_ylabel("Exact match accuracy")
+            ax.set_title("Math: accuracy vs context length")
+            ax.legend()
+            fig.savefig(out_dir / "context_sensitivity_math.png", bbox_inches="tight")
+            plt.close(fig)
+
+        if lit_rows:
+            fig, ax = plt.subplots(figsize=(8, 4))
+            for m in models:
+                mrows = [r for r in lit_rows if r["model"] == m]
+                if mrows:
+                    ax.plot(
+                        [r["context_length"] for r in mrows],
+                        [r["value"] for r in mrows],
+                        marker="o",
+                        label=m,
+                    )
+            ax.set_xlabel("Context length (tokens)")
+            ax.set_ylabel("Perplexity")
+            ax.set_title("Literature: perplexity vs context length")
+            ax.legend()
+            fig.savefig(out_dir / "context_sensitivity_literature.png", bbox_inches="tight")
+            plt.close(fig)
+    except Exception as exc:
+        print(f"Skipping context sensitivity plots: {exc}")
+
+    print(f"Wrote context sensitivity outputs to {out_dir}")
 
 
 if __name__ == "__main__":
