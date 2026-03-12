@@ -90,13 +90,11 @@ def main() -> int:
         if run_cmd(cmd) != 0:
             failed.append(name)
 
-    # Optionally run training curves if logs exist
     log_dir = PROJECT_ROOT / "scripts/analysis/outputs/training_logs"
     if log_dir.exists() and list(log_dir.rglob("*.log")):
         print("\n>>> Training curves")
         run_cmd(["python", "scripts/analysis/plot_training_curves.py", "--log-glob", str(log_dir / "*" / "*.log")])
 
-    # Summary
     print("\n" + "=" * 60)
     if failed:
         print(f"FAILED: {failed}")
@@ -117,7 +115,6 @@ def print_summary(root: Path) -> None:
 
     print("\n--- INTERPRETABILITY SUMMARY (for paper) ---\n")
 
-    # Win/loss: pairwise
     pw_path = root / "scripts/analysis/outputs/win_loss/pairwise_win_loss.csv"
     if pw_path.exists():
         with open(pw_path) as f:
@@ -131,7 +128,6 @@ def print_summary(root: Path) -> None:
                 print(f"  {left} vs {right}: wins={wins} losses={losses} ties={r.get('same_result', 0)}")
         print()
 
-    # Gate: data-driven interpretation
     gate_sig: float | None = None
     gate_path = root / "scripts/analysis/outputs/hybrid_gates/hybrid_gate_values.csv"
     if gate_path.exists():
