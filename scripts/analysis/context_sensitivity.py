@@ -1,168 +1,123 @@
-import json
-import math
-import os
-import sys
+from __future__ import annotations
 
-import torch
-from tqdm import tqdm
+import argparse
+import re
+from collections import Counter
 
-
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+from scripts.analysis._common import ensure_dir, read_jsonl, write_csv
 
 
-def _data_dir() -> str:
-    from scripts.preprocessing.training_config import _project_root  # type: ignore
-    return os.environ.get("DATA_DIR") or os.path.join(_project_root(), "data")
+NUM_RE = re.compile(r"-?\d+\.?\d*")
 
 
-def _maybe_cuda() -> str:
-    return os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Heuristic error taxonomy from win/loss predictions.")
+    parser.add_argument(
+        "--predictions-path",
+        default="scripts/analysis/outputs/win_loss/per_example_predictions.jsonl",
+    )
+    parser.add_argument("--output-dir", default="scripts/analysis/outputs/error_taxonomy")
+    return parser.parse_args()
 
 
-def analyze_attention_gpt2() -> None:
-    from src.models import get_model
-
-    data_dir = _data_dir()
-    chunks_path = os.path.join(data_dir, "gutenberg_7000_1192.jsonl")
-    math_path = os.path.join(data_dir, "olympiad_preprocessed.jsonl")
-    device = _maybe_cuda()
-
-    model, tokenizer = get_model("gpt2", device=device)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    model.eval()
-
-    out_path = os.path.join(data_dir, "context_attention_gpt2.jsonl")
-    max_lit = int(os.environ.get("ATTN_MAX_LIT", "10"))
-    max_math = int(os.environ.get("ATTN_MAX_MATH", "20"))
-    context_window = int(os.environ.get("CONTEXT_WINDOW", "1024"))
-
-    with open(out_path, "w", encoding="utf-8") as fout:
-        with open(chunks_path, "r", encoding="utf-8") as f:
-            lines = [l.strip() for l in f if l.strip()]
-        for i, line in enumerate(tqdm(lines[:max_lit], desc="attn_lit")):
-            obj = json.loads(line)
-            ctx = obj["context_text"]
-            tgt = obj["target_text"]
-            full = ctx + " " + tgt
-            enc = tokenizer(full, return_tensors="pt", truncation=True, max_length=context_window)
-            input_ids = enc["input_ids"].to(device)
-            with torch.inference_mode():
-                out = model(input_ids=input_ids, output_attentions=True)
-            attn = out.attentions[-1]  # type: ignore
-            attn_mean = attn.mean(dim=1)[0]  # heads avg, shape (T,T)
-            t = attn_mean.size(0) - 1
-            vec = attn_mean[t].detach().cpu().tolist()
-            rec = {
-                "type": "literature",
-                "index": i,
-                "text": full,
-                "attn_last_token": vec,
-            }
-            fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-        with open(math_path, "r", encoding="utf-8") as f:
-            lines = [l.strip() for l in f if l.strip()]
-        for i, line in enumerate(tqdm(lines[:max_math], desc="attn_math")):
-            obj = json.loads(line)
-            q = (obj.get("question") or "").strip()
-            prompt = f"Question: {q}\n\nFinal answer:"
-            enc = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=context_window)
-            input_ids = enc["input_ids"].to(device)
-            with torch.inference_mode():
-                out = model(input_ids=input_ids, output_attentions=True)
-            attn = out.attentions[-1]  # type: ignore
-            attn_mean = attn.mean(dim=1)[0]
-            t = attn_mean.size(0) - 1
-            vec = attn_mean[t].detach().cpu().tolist()
-            rec = {
-                "type": "math",
-                "index": i,
-                "text": prompt,
-                "attn_last_token": vec,
-            }
-            fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-
-def _segment_indices(length: int):
-    if length <= 3:
-        return [(0, length)]
-    a = length // 3
-    b = 2 * length // 3
-    return [(0, a), (a, b), (b, length)]
-
-
-def _mask_span(input_ids: torch.Tensor, span, pad_id: int) -> torch.Tensor:
-    out = input_ids.clone()
-    out[:, span[0]:span[1]] = pad_id
-    return out
-
-
-def analyze_mask_sensitivity(model_name: str) -> None:
-    from src.models import get_model
-
-    data_dir = _data_dir()
-    math_path = os.path.join(data_dir, "olympiad_preprocessed.jsonl")
-    device = _maybe_cuda()
-
-    model, tokenizer = get_model(model_name, device=device)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    pad_id = tokenizer.pad_token_id
-    model.eval()
-
-    out_path = os.path.join(data_dir, f"mask_sensitivity_{model_name}.jsonl")
-    max_math = int(os.environ.get("MASK_MAX_MATH", "50"))
-    context_window = int(os.environ.get("CONTEXT_WINDOW_MATH", "512"))
-
-    with open(math_path, "r", encoding="utf-8") as f:
-        lines = [l.strip() for l in f if l.strip()]
-
-    with open(out_path, "w", encoding="utf-8") as fout, torch.inference_mode():
-        for i, line in enumerate(tqdm(lines[:max_math], desc=f"mask_{model_name}")):
-            obj = json.loads(line)
-            q = (obj.get("question") or "").strip()
-            gold = (obj.get("final_answer") or "").strip()
-            if not q or not gold:
-                continue
-            prompt = f"Question: {q}\n\nFinal answer:{gold}"
-            enc = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=context_window)
-            input_ids = enc["input_ids"].to(device)
-            labels = input_ids.clone()
-            labels[:, :-1] = input_ids[:, 1:]
-            labels[:, -1] = -100
-
-            base_out = model(input_ids=input_ids, labels=labels)
-            base_loss = float(base_out.loss.detach().cpu())
-
-            spans = _segment_indices(input_ids.size(1))
-            losses = []
-            for span in spans:
-                masked_ids = _mask_span(input_ids, span, pad_id)
-                out = model(input_ids=masked_ids, labels=labels)
-                losses.append(float(out.loss.detach().cpu()))
-
-            rec = {
-                "index": i,
-                "prompt": prompt,
-                "base_loss": base_loss,
-                "span_losses": losses,
-                "seq_len": int(input_ids.size(1)),
-            }
-            fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
+def classify_error(gold: str, pred: str, is_correct: bool) -> str:
+    if is_correct:
+        return "correct"
+    pred = (pred or "").strip().lower()
+    gold = (gold or "").strip().lower()
+    if not pred:
+        return "empty_output"
+    pred_nums = NUM_RE.findall(pred)
+    gold_nums = NUM_RE.findall(gold)
+    if gold_nums and not pred_nums:
+        return "no_numeric_answer"
+    if pred.endswith("..."):
+        return "truncated_output"
+    if "final answer" in pred and not pred_nums:
+        return "formatting_without_answer"
+    if gold_nums and pred_nums:
+        gold_val = gold_nums[-1]
+        pred_val = pred_nums[-1]
+        try:
+            if abs(float(gold_val)) == abs(float(pred_val)) and float(gold_val) != float(pred_val):
+                return "sign_error"
+            if abs(float(gold_val) - float(pred_val)) <= 1:
+                return "off_by_one_or_small_arithmetic"
+        except ValueError:
+            pass
+        if len(pred_nums) > 1:
+            return "wrong_final_extraction"
+        return "numeric_mismatch"
+    if len(pred.split()) > 12:
+        return "reasoning_trace_no_match"
+    return "other_text_mismatch"
 
 
 def main() -> None:
-    if os.environ.get("RUN_ATTN_GPT2", "1").lower() in ("1", "true", "yes"):
-        analyze_attention_gpt2()
-    for name in ["gpt2", "mamba"]:
-        if os.environ.get(f"RUN_MASK_{name.upper()}", "1").lower() in ("1", "true", "yes"):
-            analyze_mask_sensitivity(name)
+    args = parse_args()
+    out_dir = ensure_dir(args.output_dir)
+    rows = read_jsonl(args.predictions_path)
+
+    error_rows = []
+    summary_counter = Counter()
+    for row in rows:
+        gold = row.get("gold", "")
+        for key, value in row.items():
+            if not key.endswith("_prediction"):
+                continue
+            model = key[: -len("_prediction")]
+            pred = value
+            is_correct = bool(row.get(f"{model}_correct", False))
+            label = classify_error(gold, pred, is_correct)
+            error_rows.append(
+                {
+                    "record_id": row.get("record_id", ""),
+                    "model": model,
+                    "gold": gold,
+                    "prediction": pred,
+                    "correct": is_correct,
+                    "taxonomy_label": label,
+                }
+            )
+            summary_counter[(model, label)] += 1
+
+    summary_rows = [
+        {"model": model, "taxonomy_label": label, "count": count}
+        for (model, label), count in sorted(summary_counter.items())
+    ]
+
+    write_csv(out_dir / "error_taxonomy_per_example.csv", error_rows)
+    write_csv(out_dir / "error_taxonomy_summary.csv", summary_rows)
+
+    try:
+        import matplotlib.pyplot as plt
+
+        models = sorted({row["model"] for row in summary_rows})
+        labels = sorted({row["taxonomy_label"] for row in summary_rows if row["taxonomy_label"] != "correct"})
+        fig, ax = plt.subplots(figsize=(10, 4))
+        width = 0.8 / max(1, len(models))
+        for model_idx, model in enumerate(models):
+            values = []
+            for label in labels:
+                count = next(
+                    (row["count"] for row in summary_rows if row["model"] == model and row["taxonomy_label"] == label),
+                    0,
+                )
+                values.append(count)
+            xs = [idx + (model_idx - (len(models) - 1) / 2) * width for idx in range(len(labels))]
+            ax.bar(xs, values, width=width, label=model)
+        ax.set_xticks(list(range(len(labels))))
+        ax.set_xticklabels(labels, rotation=25, ha="right")
+        ax.set_ylabel("Count")
+        ax.set_title("Heuristic error taxonomy")
+        ax.legend()
+        fig.savefig(out_dir / "error_taxonomy_summary.png", bbox_inches="tight")
+        plt.close(fig)
+    except Exception as exc:
+        print(f"Skipping error taxonomy plot: {exc}")
+
+    print(f"Wrote error taxonomy outputs to {out_dir}")
 
 
 if __name__ == "__main__":
     main()
-
