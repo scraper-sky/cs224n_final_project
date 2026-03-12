@@ -1,8 +1,3 @@
-"""
-Re-run evaluation at several context lengths.
-Measures how math exact match and/or literature perplexity change as visible context shrinks.
-"""
-
 from __future__ import annotations
 
 import argparse

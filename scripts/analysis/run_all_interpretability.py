@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-Run all interpretability analyses for GPT-2, Mamba, and trained HMT.
-Usage: From project root, with checkpoint at checkpoints/hybrid_step500.pt:
-  python scripts/analysis/run_all_interpretability.py
-Or paste the commands into Colab (see COLAB_INTERPRETABILITY below).
-"""
 
 import glob
 import os

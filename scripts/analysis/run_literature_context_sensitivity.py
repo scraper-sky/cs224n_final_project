@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""
-Run ONLY literature perplexity vs context length and produce one plot.
-
-Output: scripts/analysis/outputs/context_sensitivity/context_sensitivity_literature.png
-
-Usage (from project root):
-  python scripts/analysis/run_literature_context_sensitivity.py
-
-Or with explicit args:
-  python scripts/analysis/run_literature_context_sensitivity.py \\
-    --checkpoint-map hybrid=checkpoints/hybrid_step500.pt \\
-    --max-samples 50
-"""
 
 import argparse
 import os

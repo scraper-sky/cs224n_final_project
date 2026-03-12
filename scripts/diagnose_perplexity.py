@@ -1,7 +1,3 @@
-"""
-Run in Colab after cloning to diagnose perplexity. Run from project root:
-  python scripts/diagnose_perplexity.py
-"""
 import os
 import sys
 
